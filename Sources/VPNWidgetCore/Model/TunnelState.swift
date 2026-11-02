@@ -24,6 +24,8 @@ public struct TunnelState: Codable, Equatable, Sendable {
     /// and after a drop. Quiet restarts of an unattended sign-in keep it.
     public var signInAttempt: Int
     public var interfaceName: String?
+    /// The tunnel's own address, to find the interface again if it changes.
+    public var address: String?
     public var dnsServers: [String]
     /// Why it failed, or what it is waiting for.
     public var message: String?
@@ -32,13 +34,14 @@ public struct TunnelState: Codable, Equatable, Sendable {
     public var pid: Int32
     public var updated: Date
 
-    public init(phase: Phase, since: Date, connectedSince: Date? = nil, signInURL: String? = nil, signInAttempt: Int = 0, interfaceName: String? = nil, dnsServers: [String] = [], message: String? = nil, untrustedCertificate: String? = nil, pid: Int32 = 0, updated: Date = Date()) {
+    public init(phase: Phase, since: Date, connectedSince: Date? = nil, signInURL: String? = nil, signInAttempt: Int = 0, interfaceName: String? = nil, address: String? = nil, dnsServers: [String] = [], message: String? = nil, untrustedCertificate: String? = nil, pid: Int32 = 0, updated: Date = Date()) {
         self.phase = phase
         self.since = since
         self.connectedSince = connectedSince
         self.signInURL = signInURL
         self.signInAttempt = signInAttempt
         self.interfaceName = interfaceName
+        self.address = address
         self.dnsServers = dnsServers
         self.message = message
         self.untrustedCertificate = untrustedCertificate

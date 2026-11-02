@@ -91,9 +91,15 @@ public enum TunnelFiles {
         """
     }
 
-    public static func installScript(name: String, stagedConfig: String, stagedSecret: String?) -> String {
+    /// With `refreshHelperFrom`, the helper is replaced first, so that an app
+    /// update reaches the daemons at the next Apply without a separate setup.
+    public static func installScript(name: String, stagedConfig: String, stagedSecret: String?, refreshHelperFrom bundledHelper: String? = nil) -> String {
         let q = ResolverFiles.shellQuote
-        var lines = ["set -e", "\(q(helperPath)) install \(q(name)) \(q(stagedConfig))\(stagedSecret.map { " " + q($0) } ?? "")"]
+        var lines = ["set -e"]
+        if let bundledHelper {
+            lines.append("/usr/bin/install -m 755 -o root -g wheel \(q(bundledHelper)) \(q(helperPath))")
+        }
+        lines.append("\(q(helperPath)) install \(q(name)) \(q(stagedConfig))\(stagedSecret.map { " " + q($0) } ?? "")")
         if let stagedSecret { lines.append("/bin/rm -f \(q(stagedSecret))") }
         return lines.joined(separator: "\n") + "\n"
     }

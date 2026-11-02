@@ -187,7 +187,7 @@ final class TunnelRunner: @unchecked Sendable {
         case .signInTimedOut:
             sawSignInTimeout = true
         case .addresses(let ip, let dns):
-            write { $0.dnsServers = dns; $0.message = "got address \(ip)" }
+            write { $0.dnsServers = dns; $0.address = ip; $0.message = "got address \(ip)" }
         case .up(let interface, let address):
             sessionStarted = Date()
             backoff.reset()
@@ -195,13 +195,14 @@ final class TunnelRunner: @unchecked Sendable {
             // DNS first, state second: the widget checks the service as soon
             // as it sees "connected", and a lookup that goes out before the
             // resolver files exist comes back NXDOMAIN and gets cached.
-            write { $0.interfaceName = name }
+            write { $0.interfaceName = name; $0.address = address }
             writeResolverFiles()
             write {
                 $0.phase = .connected
                 $0.since = Date()
                 $0.connectedSince = Date()
                 $0.interfaceName = name
+                $0.address = address
                 $0.signInURL = nil
                 $0.message = nil
             }

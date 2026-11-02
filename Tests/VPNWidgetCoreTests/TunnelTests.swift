@@ -80,6 +80,8 @@ import Testing
         let install = TunnelFiles.installScript(name: "corp", stagedConfig: "/tmp/s/corp.json", stagedSecret: "/tmp/s/corp.secret")
         #expect(install.contains("'/usr/local/libexec/vpn-widget/vpn-tunnel' install 'corp' '/tmp/s/corp.json' '/tmp/s/corp.secret'"))
         #expect(install.contains("/bin/rm -f '/tmp/s/corp.secret'"))
+        let refreshed = TunnelFiles.installScript(name: "corp", stagedConfig: "/tmp/s/corp.json", stagedSecret: nil, refreshHelperFrom: "/A/vpn-tunnel")
+        #expect(refreshed.hasPrefix("set -e\n/usr/bin/install -m 755 -o root -g wheel '/A/vpn-tunnel' '/usr/local/libexec/vpn-widget/vpn-tunnel'\n"))
         let setup = TunnelFiles.setupScript(bundledHelper: "/Applications/VPN Widget.app/Contents/MacOS/vpn-tunnel", user: "me", homebrewPrefix: "/opt/homebrew")
         #expect(setup.contains("/usr/bin/install -m 755 -o root -g wheel '/Applications/VPN Widget.app/Contents/MacOS/vpn-tunnel' '/usr/local/libexec/vpn-widget/vpn-tunnel'"))
         #expect(setup.contains("'/usr/local/libexec/vpn-widget/vpn-tunnel' setup 'me' '/opt/homebrew'"))

@@ -56,6 +56,13 @@ public final class TunnelControllerLaunchd: ConnectionController, ServiceDirecto
         return state.rawStatus(daemonAlive: Self.isAlive(pid: state.pid))
     }
 
+    /// The interface the tunnel is on now: by its address when known, since
+    /// utun numbers move around as other tunnels come and go.
+    static func interfaceName(_ state: TunnelState) -> String? {
+        if let address = state.address, let name = InterfaceStatistics.interface(withAddress: address) { return name }
+        return state.interfaceName
+    }
+
     public func extendedStatus(of serviceID: String) async -> ExtendedStatus? {
         guard let name = TunnelConfig.name(fromProfileID: serviceID), let state = Self.readState(name) else { return nil }
         return ExtendedStatus(
@@ -63,7 +70,7 @@ public final class TunnelControllerLaunchd: ConnectionController, ServiceDirecto
             dnsServers: state.dnsServers,
             dnsSearchDomains: [],
             isPrimaryInterface: false,
-            interfaceName: state.interfaceName,
+            interfaceName: Self.interfaceName(state),
             signInURL: state.signInURL.flatMap(URL.init(string:)),
             signInAttempt: state.signInAttempt,
             message: state.message,
@@ -73,7 +80,7 @@ public final class TunnelControllerLaunchd: ConnectionController, ServiceDirecto
 
     public func statistics(of serviceID: String) async -> Traffic? {
         guard let name = TunnelConfig.name(fromProfileID: serviceID), let state = Self.readState(name),
-              state.phase == .connected, let interface = state.interfaceName
+              state.phase == .connected, let interface = Self.interfaceName(state)
         else { return nil }
         return InterfaceStatistics.traffic(interface: interface)
     }
@@ -244,7 +251,8 @@ public enum TunnelInstaller {
             try? fm.removeItem(at: config)
             if let secret { try? fm.removeItem(at: secret) }
         }
-        try PrivilegedRunner.run(TunnelFiles.installScript(name: tunnel.name, stagedConfig: config.path, stagedSecret: secret?.path))
+        let refresh = setupStatus() == .outdated ? bundledHelper : nil
+        try PrivilegedRunner.run(TunnelFiles.installScript(name: tunnel.name, stagedConfig: config.path, stagedSecret: secret?.path, refreshHelperFrom: refresh))
     }
 
     public static func remove(name: String) throws {
