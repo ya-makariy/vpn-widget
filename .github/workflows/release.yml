@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode on the runner
+        run: |
+          XCODE="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Tests
+        run: make test
+
+      - name: Build and zip
+        run: make zip VERSION="${GITHUB_REF_NAME#v}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/*.sha256
+          generate_release_notes: true
+
+  # Bumps Casks/vpn-widget.rb in the tap. Needs a fine-grained PAT with
+  # "Contents: read and write" on that repository, stored as the
+  # TAP_GITHUB_TOKEN secret, and the TAP_REPO variable (owner/name).
+  update-tap:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ vars.TAP_REPO != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.TAP_REPO }}
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+      - name: Bump cask version and sha256
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/VPN-Widget-${VERSION}.zip"
+          SHA="$(curl -fsSL "$URL" | shasum -a 256 | cut -d' ' -f1)"
+          sed -i -E "s/^(  version ).*/\1\"${VERSION}\"/; s/^(  sha256 ).*/\1\"${SHA}\"/" Casks/vpn-widget.rb
+          git config user.name "Makarii Balashov"
+          git config user.email "me@ya-makariy.com"
+          git commit -am "vpn-widget ${VERSION}" && git push

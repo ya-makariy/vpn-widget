@@ -24,7 +24,7 @@ ifeq ($(findstring Xcode.app,$(DEV_DIR)),)
 endif
 SWIFT       := swift
 
-.PHONY: build test app run once install uninstall release cask clean
+.PHONY: build test app run once install uninstall zip release cask clean
 
 build:
 	$(SWIFT) build -c $(CONFIG) --product $(EXECUTABLE)
@@ -58,10 +58,14 @@ install: app
 uninstall:
 	rm -rf "/Applications/$(NAME).app"
 
-release: app
-	rm -f "$(ZIP)"
+# The zip and its digest; the Release workflow publishes them on a tag push,
+# `make release` does the same by hand.
+zip: app
+	rm -f "$(ZIP)" "$(ZIP).sha256"
 	ditto -c -k --keepParent "$(APP)" "$(ZIP)"
-	shasum -a 256 "$(ZIP)" | tee "$(ZIP).sha256"
+	cd "$(DIST)" && shasum -a 256 "$(notdir $(ZIP))" | tee "$(notdir $(ZIP)).sha256"
+
+release: zip
 	gh release create "v$(VERSION)" "$(ZIP)" "$(ZIP).sha256" --generate-notes
 
 cask:

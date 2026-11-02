@@ -186,9 +186,11 @@ notification diff, resolver files) and the system adapters behind protocols;
 `Sources/VPNWidget` is the SwiftUI app; `Tests/VPNWidgetCoreTests` test the
 core with fakes and no system access.
 
-Releases: `make release` zips the app and creates a GitHub release;
-`make cask` renders the cask into a checkout of
-[homebrew-tap](https://github.com/ya-makariy/homebrew-tap).
+Releases: pushing a tag `vX.Y.Z` runs the Release workflow, which tests,
+builds, zips, publishes the GitHub release and bumps the cask in
+[homebrew-tap](https://github.com/ya-makariy/homebrew-tap) (the tap job needs
+the `TAP_REPO` variable and a `TAP_GITHUB_TOKEN` secret with write access to the
+tap). `make release` and `make cask` do the same by hand.
 
 ## License
 
