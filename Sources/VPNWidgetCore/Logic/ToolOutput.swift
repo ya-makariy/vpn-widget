@@ -9,8 +9,8 @@ public enum ToolEvent: Equatable, Sendable {
     case signInTimedOut
     /// The gateway handed out addresses; name servers when it sent any.
     case addresses(ip: String, dns: [String])
-    /// The link is up, on this interface when known.
-    case up(interface: String?)
+    /// The link is up, on this interface and with this address when known.
+    case up(interface: String?, address: String?)
     /// The session ended on the far side or the link went down.
     case down(String)
     /// Authentication was refused: retrying blindly is pointless.
@@ -36,10 +36,10 @@ public enum OpenFortiVPNOutput {
             guard let ip = ips.first else { return nil }
             return .addresses(ip: ip, dns: Array(ips.dropFirst()))
         }
-        if text.contains("Tunnel is up and running") { return .up(interface: nil) }
+        if text.contains("Tunnel is up and running") { return .up(interface: nil, address: nil) }
         if let range = text.range(of: "Interface "), text.contains(" is UP") {
             let rest = text[range.upperBound...]
-            if let end = rest.firstIndex(of: " ") { return .up(interface: String(rest[..<end])) }
+            if let end = rest.firstIndex(of: " ") { return .up(interface: String(rest[..<end]), address: nil) }
         }
         if text.contains("Logged out") || text.contains("Remote gateway has closed the connection") || text.contains("pppd: The link was terminated") {
             return .down(text.replacingOccurrences(of: "INFO:   ", with: ""))
@@ -79,9 +79,17 @@ public enum OpenFortiVPNOutput {
 public enum OpenConnectOutput {
     public static func parse(_ line: String) -> ToolEvent? {
         let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Older versions: "Connected utun6 as 172.16.0.5, using SSL"; 9.x: "Configured as 172.16.0.5, with SSL connected".
         if text.hasPrefix("Connected "), let asRange = text.range(of: " as ") {
             let device = String(text[text.index(text.startIndex, offsetBy: "Connected ".count)..<asRange.lowerBound])
-            if device.hasPrefix("utun") || device.hasPrefix("tun") { return .up(interface: device) }
+            if device.hasPrefix("utun") || device.hasPrefix("tun") {
+                let address = text[asRange.upperBound...].prefix { !$0.isWhitespace && $0 != "," }
+                return .up(interface: device, address: String(address))
+            }
+        }
+        if text.hasPrefix("Configured as ") {
+            let address = text.dropFirst("Configured as ".count).prefix { !$0.isWhitespace && $0 != "," }
+            return .up(interface: nil, address: ResolverFiles.isServer(String(address)) ? String(address) : nil)
         }
         if text.contains("Login failed") || text.contains("Failed to obtain WebVPN cookie") || text.contains("Authentication failed") {
             return .authenticationFailed(text)

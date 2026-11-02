@@ -116,8 +116,8 @@ import Testing
         #expect(OpenFortiVPNOutput.parse("ERROR:  Timeout listening for incoming HTTP connection reached") == .signInTimedOut)
         #expect(OpenFortiVPNOutput.parse("INFO:   Got addresses: [10.0.0.5], ns [10.0.0.53, 10.0.0.54]") == .addresses(ip: "10.0.0.5", dns: ["10.0.0.53", "10.0.0.54"]))
         #expect(OpenFortiVPNOutput.parse("INFO:   Got addresses: [10.0.0.5], ns [0.0.0.0, 0.0.0.0]") == .addresses(ip: "10.0.0.5", dns: ["0.0.0.0", "0.0.0.0"]))
-        #expect(OpenFortiVPNOutput.parse("INFO:   Interface ppp0 is UP.") == .up(interface: "ppp0"))
-        #expect(OpenFortiVPNOutput.parse("INFO:   Tunnel is up and running.") == .up(interface: nil))
+        #expect(OpenFortiVPNOutput.parse("INFO:   Interface ppp0 is UP.") == .up(interface: "ppp0", address: nil))
+        #expect(OpenFortiVPNOutput.parse("INFO:   Tunnel is up and running.") == .up(interface: nil, address: nil))
         #expect(OpenFortiVPNOutput.parse("INFO:   Logged out.") == .down("Logged out."))
         #expect(OpenFortiVPNOutput.parse("ERROR:  Could not authenticate to gateway. Please check the password, client certificate, etc.") == .authenticationFailed("ERROR:  Could not authenticate to gateway. Please check the password, client certificate, etc."))
         #expect(OpenFortiVPNOutput.parse("ERROR:  connect: Connection refused") == .error("connect: Connection refused"))
@@ -125,7 +125,9 @@ import Testing
     }
 
     @Test func openconnect() {
-        #expect(OpenConnectOutput.parse("Connected utun6 as 172.16.0.5, using SSL, with DTLS in progress") == .up(interface: "utun6"))
+        #expect(OpenConnectOutput.parse("Connected utun6 as 172.16.0.5, using SSL, with DTLS in progress") == .up(interface: "utun6", address: "172.16.0.5"))
+        #expect(OpenConnectOutput.parse("Configured as 172.16.0.5, with SSL connected and DTLS connected") == .up(interface: nil, address: "172.16.0.5"))
+        #expect(OpenConnectOutput.parse("Session authentication will expire at Mon, 16 Nov 2026 17:30:06 MSK") == nil)
         #expect(OpenConnectOutput.parse("Login failed.") == .authenticationFailed("Login failed."))
         #expect(OpenConnectOutput.parse("Failed to connect to host gw.example") == .error("Failed to connect to host gw.example"))
         #expect(OpenConnectOutput.parse("Logout successful.") == .down("Logout successful."))
@@ -148,6 +150,13 @@ import Testing
         #expect(b.next(sessionLasted: 120) == 5)
         b.reset()
         #expect(b.next(sessionLasted: 0) == 5)
+    }
+}
+
+@Suite struct InterfaceLookupTests {
+    @Test func loopbackByAddress() {
+        #expect(InterfaceStatistics.interface(withAddress: "127.0.0.1") == "lo0")
+        #expect(InterfaceStatistics.interface(withAddress: "203.0.113.77") == nil)
     }
 }
 

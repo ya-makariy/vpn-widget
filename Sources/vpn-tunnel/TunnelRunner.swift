@@ -188,10 +188,10 @@ final class TunnelRunner: @unchecked Sendable {
             sawSignInTimeout = true
         case .addresses(let ip, let dns):
             write { $0.dnsServers = dns; $0.message = "got address \(ip)" }
-        case .up(let interface):
+        case .up(let interface, let address):
             sessionStarted = Date()
             backoff.reset()
-            let name = interface ?? guessInterface()
+            let name = interface ?? guessInterface(address: address)
             write {
                 $0.phase = .connected
                 $0.since = Date()
@@ -218,14 +218,16 @@ final class TunnelRunner: @unchecked Sendable {
 
     /// pppd names its interface after the first free ppp number; the tool may
     /// not say which. Pick the one that just came up.
-    private func guessInterface() -> String? {
-        switch tunnel.kind {
-        case .openfortivpn:
-            for i in 0..<8 where InterfaceStatistics.isUp(interface: "ppp\(i)") { return "ppp\(i)" }
-            return nil
-        case .openconnect:
-            return nil
+    private func guessInterface(address: String?) -> String? {
+        // The interface may appear a moment after the tool says it is up.
+        for _ in 0..<10 {
+            if let address, let name = InterfaceStatistics.interface(withAddress: address) { return name }
+            if tunnel.kind == .openfortivpn {
+                for i in 0..<8 where InterfaceStatistics.isUp(interface: "ppp\(i)") { return "ppp\(i)" }
+            }
+            Thread.sleep(forTimeInterval: 0.3)
         }
+        return nil
     }
 
     // MARK: Split DNS

@@ -30,6 +30,26 @@ public enum InterfaceStatistics {
         }
     }
 
+    /// The interface that carries an IPv4 or IPv6 address.
+    public static func interface(withAddress address: String) -> String? {
+        var pointer: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&pointer) == 0, let first = pointer else { return nil }
+        defer { freeifaddrs(pointer) }
+        var current: UnsafeMutablePointer<ifaddrs>? = first
+        while let entry = current {
+            defer { current = entry.pointee.ifa_next }
+            guard let sa = entry.pointee.ifa_addr else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            let length = sa.pointee.sa_family == UInt8(AF_INET) ? socklen_t(MemoryLayout<sockaddr_in>.size) : sa.pointee.sa_family == UInt8(AF_INET6) ? socklen_t(MemoryLayout<sockaddr_in6>.size) : 0
+            guard length > 0, getnameinfo(sa, length, &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 else { continue }
+            let text = String(cString: host)
+            if text == address || text.split(separator: "%").first.map(String.init) == address {
+                return String(cString: entry.pointee.ifa_name)
+            }
+        }
+        return nil
+    }
+
     /// Whether an interface exists and is up.
     public static func isUp(interface name: String) -> Bool {
         var pointer: UnsafeMutablePointer<ifaddrs>?
