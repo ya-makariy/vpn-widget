@@ -59,12 +59,6 @@ struct ProfileRowView: View {
                 Circle().fill(StateStyle.color(row.phase)).frame(width: 7, height: 7)
             }
             Text(row.phase.label)
-            if row.phase.isUp, let since = row.connectedSince {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text("· up \(Format.uptime(since: since, now: context.date))")
-                        .monospacedDigit()
-                }
-            }
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -118,9 +112,16 @@ struct ProfileDetailsView: View {
                     checkLine.gridCellColumns(2)
                 }
             }
-            if let name = row.interfaceName {
+            if row.interfaceName != nil || row.connectedSince != nil {
                 GridRow {
-                    Label(name, systemImage: "cable.connector").gridCellColumns(2)
+                    if let since = row.connectedSince {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Label("up \(Format.uptime(since: since, now: context.date))", systemImage: "clock")
+                        }
+                    }
+                    if let name = row.interfaceName {
+                        Label(name, systemImage: "cable.connector")
+                    }
                 }
             }
         }
