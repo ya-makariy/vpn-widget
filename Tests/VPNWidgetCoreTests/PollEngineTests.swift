@@ -205,6 +205,45 @@ import Testing
         runner.cancel()
     }
 
+    @Test func handoffShowsConnectingUntilTheClientConnectsOrTimesOut() async throws {
+        let a = VPNProfile.test("a", kind: .forticlient)
+        let rig = Rig(profiles: [a], statuses: ["a": .disconnected], hooks: HandoffHooks()) { $0.repollAfter = []; $0.handoffTimeout = 60 }
+        await rig.engine.perform(.connect, on: "a")
+        var s = await rig.engine.poll()
+        #expect(s.profiles[0].state == .connecting)
+        #expect(s.profiles[0].clientHint == "Click Connect in the client")
+        #expect(s.profiles[0].transitionSince == rig.now.now)
+
+        // The client fails briefly, as FortiClient does: still waiting.
+        await rig.controller.set("a", .connecting)
+        _ = await rig.engine.poll()
+        await rig.controller.set("a", .disconnected)
+        rig.now.advance(30)
+        s = await rig.engine.poll()
+        #expect(s.profiles[0].state == .connecting)
+
+        // Connected: the hand-off is over.
+        await rig.controller.set("a", .connected)
+        s = await rig.engine.poll()
+        #expect(s.profiles[0].state == .connected)
+        #expect(s.profiles[0].clientHint == nil)
+        await rig.controller.set("a", .disconnected)
+        s = await rig.engine.poll()
+        #expect(s.profiles[0].state == .disconnected)
+
+        // Nobody signs in: after the timeout it is disconnected again.
+        await rig.engine.perform(.connect, on: "a")
+        rig.now.advance(61)
+        s = await rig.engine.poll()
+        #expect(s.profiles[0].state == .disconnected)
+
+        // Disconnect clears a pending hand-off.
+        await rig.engine.perform(.connect, on: "a")
+        await rig.engine.perform(.disconnect, on: "a")
+        s = await rig.engine.poll()
+        #expect(s.profiles[0].state == .disconnected)
+    }
+
     @Test func setProfilesReplacesTheList() async throws {
         let a = VPNProfile.test("a")
         let b = VPNProfile.test("b")

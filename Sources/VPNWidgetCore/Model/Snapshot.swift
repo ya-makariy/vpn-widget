@@ -12,6 +12,9 @@ public struct ProfileState: Equatable, Identifiable, Sendable {
     public var connectedSince: Date?
     /// When the current connecting or disconnecting began, as far as polling saw.
     public var transitionSince: Date?
+    /// The client's own window is where the connection is being finished; the
+    /// text says what to do there. Nil when the system is doing it.
+    public var clientHint: String?
     public var interfaceName: String?
     /// The DNS servers and search domains the tunnel pushed, for the split-DNS editor.
     public var dnsServers: [String]
@@ -31,6 +34,7 @@ public struct ProfileState: Equatable, Identifiable, Sendable {
         traffic: Traffic? = nil,
         connectedSince: Date? = nil,
         transitionSince: Date? = nil,
+        clientHint: String? = nil,
         interfaceName: String? = nil,
         dnsServers: [String] = [],
         dnsSearchDomains: [String] = [],
@@ -45,6 +49,7 @@ public struct ProfileState: Equatable, Identifiable, Sendable {
         self.traffic = traffic
         self.connectedSince = connectedSince
         self.transitionSince = transitionSince
+        self.clientHint = clientHint
         self.interfaceName = interfaceName
         self.dnsServers = dnsServers
         self.dnsSearchDomains = dnsSearchDomains

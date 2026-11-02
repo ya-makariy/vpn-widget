@@ -61,18 +61,27 @@ public protocol Notifier: Sendable {
     func send(_ notice: Notice) async
 }
 
+/// What a start did: the system is bringing the tunnel up, or the client's
+/// own app has been asked to and the user has to finish there.
+public enum StartOutcome: Equatable, Sendable {
+    case started
+    /// The client's window is up; `hint` says what to do there.
+    case handedToClient(hint: String)
+}
+
 /// Starts and stops a profile the way its client needs. The default goes
 /// through the controller; clients that need their own window get a fallback.
 public protocol ProviderHooks: Sendable {
-    func start(_ profile: VPNProfile, name: String?, controller: any ConnectionController) async throws
+    func start(_ profile: VPNProfile, name: String?, controller: any ConnectionController) async throws -> StartOutcome
     func stop(_ profile: VPNProfile, name: String?, controller: any ConnectionController) async throws
 }
 
 public struct DefaultProviderHooks: ProviderHooks {
     public init() {}
 
-    public func start(_ profile: VPNProfile, name: String?, controller: any ConnectionController) async throws {
+    public func start(_ profile: VPNProfile, name: String?, controller: any ConnectionController) async throws -> StartOutcome {
         try await controller.start(profile.id)
+        return .started
     }
 
     public func stop(_ profile: VPNProfile, name: String?, controller: any ConnectionController) async throws {

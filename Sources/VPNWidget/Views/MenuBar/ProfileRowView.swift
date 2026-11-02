@@ -36,7 +36,7 @@ struct ProfileRowView: View {
                 .font(.caption2)
             }
             if row.phase == .waitingForSignIn {
-                Text("Finish signing in in \(row.kind.displayName).")
+                Text(row.clientHint ?? "Finish signing in in \(row.kind.displayName).")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

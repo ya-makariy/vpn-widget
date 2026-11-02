@@ -96,14 +96,14 @@ struct Rig {
     static let ok = CheckResult(dns: "ok", http: "HTTP 200", connectMS: 5, totalMS: 20, httpStatus: 200, ok: true)
     static let down = CheckResult(dns: "ok", http: "timeout")
 
-    init(profiles: [VPNProfile], statuses: [String: RawConnectionStatus], configure: (inout PollEngine.Configuration) -> Void = { _ in }) {
+    init(profiles: [VPNProfile], statuses: [String: RawConnectionStatus], hooks: any ProviderHooks = DefaultProviderHooks(), configure: (inout PollEngine.Configuration) -> Void = { _ in }) {
         directory = FakeDirectory(profiles.map { DiscoveredService(id: $0.id, name: $0.displayName, enabled: true, providerBundleID: nil) })
         controller = FakeController(statuses)
         var config = PollEngine.Configuration()
         configure(&config)
         engine = PollEngine(
             profiles: profiles,
-            ports: PollEngine.Ports(directory: directory, controller: controller, interfaces: interfaces, checker: checker, notifier: notifier, now: now.closure),
+            ports: PollEngine.Ports(directory: directory, controller: controller, interfaces: interfaces, checker: checker, notifier: notifier, hooks: hooks, now: now.closure),
             configuration: config
         )
     }
@@ -112,5 +112,15 @@ struct Rig {
 extension VPNProfile {
     static func test(_ id: String, kind: ProviderKind = .wireguard, check: String? = "https://\(UUID().uuidString.lowercased()).example/") -> VPNProfile {
         VPNProfile(id: id, displayName: id.capitalized, providerKind: kind, checkURL: check.flatMap(URL.init(string:)))
+    }
+}
+
+/// Hooks that hand every start to the client's window.
+struct HandoffHooks: ProviderHooks {
+    func start(_ profile: VPNProfile, name: String?, controller: any ConnectionController) async throws -> StartOutcome {
+        .handedToClient(hint: "Click Connect in the client")
+    }
+    func stop(_ profile: VPNProfile, name: String?, controller: any ConnectionController) async throws {
+        try await controller.stop(profile.id)
     }
 }

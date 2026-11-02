@@ -40,7 +40,7 @@ public enum ProviderKind: String, Codable, CaseIterable, Hashable, Sendable {
     public var clientBundleIDs: [String] {
         switch self {
         case .forticlient: ["com.fortinet.FortiClient"]
-        case .anyconnect: ["com.cisco.secureclient.gui", "com.cisco.anyconnect.gui"]
+        case .anyconnect: ["com.cisco.anyconnect", "com.cisco.secureclient.gui", "com.cisco.anyconnect.gui"]
         case .amneziawg: ["org.amnezia.awg"]
         case .wireguard: ["com.wireguard.macos"]
         case .other: []

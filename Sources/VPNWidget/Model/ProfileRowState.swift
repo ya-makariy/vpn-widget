@@ -70,6 +70,8 @@ struct ProfileRowState: Identifiable, Equatable, Sendable {
     var isPrimaryInterface: Bool
     var dnsServers: [String]
     var dnsSearchDomains: [String]
+    /// What to do in the client's window, while it finishes the connection.
+    var clientHint: String?
 
     /// How long a sign-in client may sit in "connecting" before the row says
     /// it is waiting for the user.
@@ -92,6 +94,7 @@ struct ProfileRowState: Identifiable, Equatable, Sendable {
         isPrimaryInterface = p.isPrimaryInterface
         dnsServers = p.dnsServers
         dnsSearchDomains = p.dnsSearchDomains
+        clientHint = p.clientHint
         switch p.state {
         case .connected:
             if p.checked, p.result.failed { phase = .connectedNotAnswering }
@@ -99,7 +102,8 @@ struct ProfileRowState: Identifiable, Equatable, Sendable {
             else { phase = .connected }
         case .connecting:
             let waited = p.transitionSince.map { now.timeIntervalSince($0) } ?? 0
-            phase = p.profile.providerKind.signsInInteractively && waited >= Self.signInAfter ? .waitingForSignIn : .connecting
+            let interactive = p.clientHint != nil || (p.profile.providerKind.signsInInteractively && waited >= Self.signInAfter)
+            phase = interactive ? .waitingForSignIn : .connecting
         case .disconnecting: phase = .disconnecting
         case .disconnected: phase = .disconnected
         case .invalid: phase = .failed("Invalid configuration")

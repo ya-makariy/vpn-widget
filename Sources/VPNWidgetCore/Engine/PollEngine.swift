@@ -15,6 +15,9 @@ public actor PollEngine {
         public var reconnectWait: Duration = .seconds(10)
         /// When to look again after an action.
         public var repollAfter: [Duration] = [.seconds(3), .seconds(10)]
+        /// How long a connection handed to the client's own window counts as
+        /// connecting while the system still says disconnected.
+        public var handoffTimeout: TimeInterval = 180
 
         public init() {}
     }
@@ -66,6 +69,8 @@ public actor PollEngine {
     private var firstConnected: [String: Date] = [:]
     private var transitionSince: [String: Date] = [:]
     private var lastState: [String: ConnectionState] = [:]
+    /// Profiles whose connection was handed to the client's window, and when.
+    private var handedOff: [String: (since: Date, hint: String)] = [:]
 
     public init(profiles: [VPNProfile], ports: Ports, configuration: Configuration = Configuration()) {
         self.profiles = profiles
@@ -180,6 +185,16 @@ public actor PollEngine {
         var state = ProfileState(profile: profile, state: deriveState(raw: raw, inDirectory: inDirectory))
         state.lastActionError = actionErrors[profile.id]
         state.transitionSince = noteTransition(profile.id, state.state, now: now)
+        if let handoff = handedOff[profile.id] {
+            if state.state == .connected || now.timeIntervalSince(handoff.since) > configuration.handoffTimeout {
+                handedOff[profile.id] = nil
+            } else if state.state == .disconnected || state.state == .invalid || state.state == .connecting {
+                // The client's window is doing the work; the system says nothing yet.
+                state.state = .connecting
+                state.transitionSince = handoff.since
+                state.clientHint = handoff.hint
+            }
+        }
         let key = profile.id
         guard state.state == .connected else {
             tracker.forget(key: key)
@@ -242,14 +257,16 @@ public actor PollEngine {
         do {
             switch action {
             case .connect:
-                try await ports.hooks.start(profile, name: name, controller: ports.controller)
+                note(try await ports.hooks.start(profile, name: name, controller: ports.controller), for: id)
             case .disconnect:
+                handedOff[id] = nil
                 try await ports.hooks.stop(profile, name: name, controller: ports.controller)
             case .reconnect:
+                handedOff[id] = nil
                 try await ports.hooks.stop(profile, name: name, controller: ports.controller)
                 poke()
                 await waitUntilDown(id)
-                try await ports.hooks.start(profile, name: name, controller: ports.controller)
+                note(try await ports.hooks.start(profile, name: name, controller: ports.controller), for: id)
             }
         } catch {
             actionErrors[id] = "\(action.rawValue) failed: \(describe(error))"
@@ -289,6 +306,13 @@ public actor PollEngine {
             for p in targets {
                 group.addTask { await self.perform(.connect, on: p.id) }
             }
+        }
+    }
+
+    private func note(_ outcome: StartOutcome, for id: String) {
+        switch outcome {
+        case .started: handedOff[id] = nil
+        case .handedToClient(let hint): handedOff[id] = (ports.now(), hint)
         }
     }
 

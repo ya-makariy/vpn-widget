@@ -124,7 +124,10 @@ struct Main {
         let hooks = SystemProviderHooks()
         print("\(verb) \(s.name) (\(s.kind.displayName)) …")
         if verb == "start" {
-            try await hooks.start(profile, name: s.name, controller: controller)
+            switch try await hooks.start(profile, name: s.name, controller: controller) {
+            case .started: print("  started by the system")
+            case .handedToClient(let hint): print("  handed to the client: \(hint)")
+            }
         } else {
             try await hooks.stop(profile, name: s.name, controller: controller)
         }

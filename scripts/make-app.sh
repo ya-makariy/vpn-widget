@@ -49,6 +49,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<string>26.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>VPN Widget asks FortiClient to connect and disconnect its VPNs on your behalf.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>MIT License</string>
 	<key>NSPrincipalClass</key>
