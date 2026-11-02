@@ -25,6 +25,12 @@ public struct ProfileState: Equatable, Identifiable, Sendable {
     public var takesOverDNS: Bool
     /// Why the last Connect, Disconnect or Reconnect could not be queued.
     public var lastActionError: String?
+    /// Why the tunnel failed, from its daemon.
+    public var failure: String?
+    /// The page to sign in at, while an own tunnel waits for SAML; the attempt
+    /// number changes when the user should be shown the page again.
+    public var signInURL: URL?
+    public var signInAttempt: Int
 
     public init(
         profile: VPNProfile,
@@ -40,7 +46,10 @@ public struct ProfileState: Equatable, Identifiable, Sendable {
         dnsSearchDomains: [String] = [],
         isPrimaryInterface: Bool = false,
         takesOverDNS: Bool = false,
-        lastActionError: String? = nil
+        lastActionError: String? = nil,
+        failure: String? = nil,
+        signInURL: URL? = nil,
+        signInAttempt: Int = 0
     ) {
         self.profile = profile
         self.state = state
@@ -56,6 +65,9 @@ public struct ProfileState: Equatable, Identifiable, Sendable {
         self.isPrimaryInterface = isPrimaryInterface
         self.takesOverDNS = takesOverDNS
         self.lastActionError = lastActionError
+        self.failure = failure
+        self.signInURL = signInURL
+        self.signInAttempt = signInAttempt
     }
 
     public var id: String { profile.id }
@@ -103,7 +115,7 @@ public struct Snapshot: Equatable, Sendable {
                 connected += 1
             case .connecting, .disconnecting:
                 progress = true
-            case .invalid:
+            case .invalid, .failed:
                 return .problem
             case .disconnected, .notFound:
                 break

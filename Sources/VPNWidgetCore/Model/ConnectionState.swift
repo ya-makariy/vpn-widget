@@ -7,6 +7,8 @@ public enum RawConnectionStatus: Sendable, Equatable {
     case disconnecting
     case disconnected
     case invalid
+    /// The tunnel's own daemon gave up; the message says why.
+    case failed
 }
 
 /// What a VPN is doing, from the system's connection status and whether its
@@ -20,6 +22,8 @@ public enum ConnectionState: Hashable, Sendable {
     case invalid
     /// The profile is gone: deleted in its client.
     case notFound
+    /// The tunnel failed and is not retrying.
+    case failed
 
     public var text: String {
         switch self {
@@ -29,13 +33,14 @@ public enum ConnectionState: Hashable, Sendable {
         case .disconnected: "disconnected"
         case .invalid: "invalid configuration"
         case .notFound: "profile removed in its client"
+        case .failed: "failed"
         }
     }
 
     /// Which menu actions make sense.
     public var actions: Actions {
         switch self {
-        case .disconnected, .invalid: Actions(connect: true)
+        case .disconnected, .invalid, .failed: Actions(connect: true)
         case .connected, .connecting: Actions(disconnect: true, reconnect: true)
         case .disconnecting, .notFound: Actions()
         }
@@ -65,6 +70,7 @@ public func deriveState(raw: RawConnectionStatus?, inDirectory: Bool) -> Connect
     case .connecting: return .connecting
     case .disconnecting: return .disconnecting
     case .disconnected: return .disconnected
+    case .failed: return .failed
     case .invalid, nil: return .invalid
     }
 }

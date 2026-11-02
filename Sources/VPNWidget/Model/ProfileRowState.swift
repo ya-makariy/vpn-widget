@@ -72,6 +72,10 @@ struct ProfileRowState: Identifiable, Equatable, Sendable {
     var dnsSearchDomains: [String]
     /// What to do in the client's window, while it finishes the connection.
     var clientHint: String?
+    /// Own tunnels: the SAML page while a sign-in is pending.
+    var signInURL: URL?
+    var signInAttempt: Int
+    var isOwnTunnel: Bool
 
     /// How long a sign-in client may sit in "connecting" before the row says
     /// it is waiting for the user.
@@ -95,6 +99,9 @@ struct ProfileRowState: Identifiable, Equatable, Sendable {
         dnsServers = p.dnsServers
         dnsSearchDomains = p.dnsSearchDomains
         clientHint = p.clientHint
+        signInURL = p.signInURL
+        signInAttempt = p.signInAttempt
+        isOwnTunnel = p.profile.isOwnTunnel
         switch p.state {
         case .connected:
             if p.checked, p.result.failed { phase = .connectedNotAnswering }
@@ -107,7 +114,8 @@ struct ProfileRowState: Identifiable, Equatable, Sendable {
         case .disconnecting: phase = .disconnecting
         case .disconnected: phase = .disconnected
         case .invalid: phase = .failed("Invalid configuration")
-        case .notFound: phase = .removed
+        case .failed: phase = .failed(p.failure.map { "Failed: \($0)" } ?? "Failed")
+        case .notFound: phase = p.profile.isOwnTunnel ? .failed("Not installed") : .removed
         }
     }
 }

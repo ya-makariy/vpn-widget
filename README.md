@@ -55,6 +55,52 @@ the profile in the list and turn it on. Per profile you can set:
 FortiClient and AnyConnect ask for a sign-in in their own window when they
 connect; the row says "waiting for sign-in" while that is pending.
 
+## Own tunnels: FortiGate SSL VPN and AnyConnect without their apps
+
+FortiClient's extension can only be started by FortiClient's own window, which
+does the SAML sign-in, and the AnyConnect on Apple silicon is the iPhone app,
+which wants its window for the password. For those two the widget can run the
+tunnel itself, with the same CLI tools the Linux version uses:
+
+- **openfortivpn** for FortiGate SSL VPN, with SAML: the sign-in page opens in
+  your default browser, nothing else to click;
+- **openconnect** for the AnyConnect protocol, with the password stored once.
+
+Install the tools (`brew install openfortivpn openconnect`), then in Settings →
+Tunnels click **Set Up Tunnels…** once. It asks for an administrator password
+and:
+
+- copies a small helper, `vpn-tunnel`, and root-owned copies of the tools to
+  `/usr/local/libexec/vpn-widget` (the passwordless start below must never run a
+  file you can edit);
+- writes `/etc/sudoers.d/vpn-widget`, which lets your user run exactly
+  `launchctl kickstart`, `kill TERM` and `print` on jobs named
+  `com.ya-makariy.vpn-widget.*`, and nothing else.
+
+**Add Tunnel** asks for the gateway, the sign-in details and the split-DNS
+domains, then installs a launchd daemon for it (administrator password again,
+once per tunnel). From then on Connect and Disconnect in the panel start and
+stop that daemon without a password. The daemon:
+
+1. waits until the gateway's port answers, so that a sign-in page never opens
+   just to show an error;
+2. runs the tool and follows its output into a state file the widget reads:
+   waiting for sign-in (with the page), connected (with the interface), failed;
+3. while the link is up, writes `/etc/resolver/<domain>` for the tunnel's
+   domains with the DNS servers the gateway sent, and removes them when it goes
+   down. With no domains configured, the gateway's DNS takes over everything
+   while the tunnel is up, as the vendor clients do;
+4. after a drop, starts again with a backoff from 5 seconds to 5 minutes. A
+   SAML sign-in nobody answers is retried quietly without opening another page.
+
+Configs live root-only in `/usr/local/etc/vpn-widget`, logs in
+`/var/log/vpn-widget/<name>.log`, state in `/var/run/vpn-widget`. Tunnels
+outlive the widget: quitting it leaves them up.
+
+Known gap: the root-owned copies of openfortivpn and openconnect still load
+Homebrew's dylibs, which your user can write. Someone already running code as
+you could use that to become root. Static builds would close it.
+
 ## Several VPNs at once
 
 macOS runs several VPN tunnels at the same time. Each brings its own routes, and
@@ -95,6 +141,7 @@ Everything goes through the public SystemConfiguration framework:
 | Traffic | `SCNetworkConnectionCopyStatistics` |
 | Interface (`utunN`) | `State:/Network/Service/<id>/IPv4` in the dynamic store |
 | Connect, disconnect | `SCNetworkConnectionStart` / `Stop`, what `scutil --nc start` does; `scutil` and the client's own app as fallbacks |
+| Own tunnels | launchd daemons running `vpn-tunnel`, controlled with `sudo -n launchctl` under a sudoers rule; state from `/var/run/vpn-widget/<name>.json`, traffic from `sysctl NET_RT_IFLIST2` |
 | Whether a tunnel owns DNS | its `State:/Network/Service/<id>/DNS` has no match domains and the global resolver points at its servers |
 
 Checks run every 30 seconds (configurable), every second while a service has
@@ -108,7 +155,8 @@ Settings live in `~/Library/Application Support/VPN Widget/profiles.json`.
 
 ## Development
 
-Needs macOS 26 and Xcode 26 or newer. The Command Line Tools alone cannot
+Needs macOS 26 and Xcode 26 or newer; own tunnels also need Homebrew's
+openfortivpn and openconnect. The Command Line Tools alone cannot
 build it: the SwiftUI macros and the Swift Testing plugin ship with Xcode. The
 Makefile sets `DEVELOPER_DIR` to `/Applications/Xcode.app` when `xcode-select`
 points elsewhere.

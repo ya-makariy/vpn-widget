@@ -48,7 +48,23 @@ struct ProfileEditorView: View {
                 Text("One GET every check interval, without redirects or proxy. Any answer below HTTP 500 counts as reachable. Turn off certificate verification for services behind a private CA; the check is about reach, not trust. Leave the URL empty to skip the check.")
             }
 
-            SplitDNSSectionView(profile: $profile)
+            if profile.isOwnTunnel {
+                Section {
+                    if model.tunnelNeedsApply(profile) {
+                        Label("The tunnel's daemon still runs the previous settings.", systemImage: "exclamationmark.circle")
+                            .foregroundStyle(.orange)
+                        Button("Apply to Tunnel…") { _ = model.saveTunnel(profile, password: nil) }
+                    } else {
+                        Label("The tunnel runs these settings.", systemImage: "checkmark.circle").foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Tunnel")
+                } footer: {
+                    Text("Gateway, sign-in and split DNS of an own tunnel are edited in the Tunnels tab; DNS and check changes made here reach the daemon with Apply.")
+                }
+            } else {
+                SplitDNSSectionView(profile: $profile)
+            }
 
             if let row, row.takesOverDNS || row.isPrimaryInterface {
                 Section("Warnings") {

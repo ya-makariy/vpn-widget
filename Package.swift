@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .executable(name: "VPNWidget", targets: ["VPNWidget"]),
         .executable(name: "vpnw", targets: ["vpnw"]),
+        .executable(name: "vpn-tunnel", targets: ["vpn-tunnel"]),
         .library(name: "VPNWidgetCore", targets: ["VPNWidgetCore"]),
     ],
     targets: [
@@ -21,6 +22,7 @@ let package = Package(
         ),
         .executableTarget(name: "VPNWidget", dependencies: ["VPNWidgetCore"]),
         .executableTarget(name: "vpnw", dependencies: ["VPNWidgetCore"]),
+        .executableTarget(name: "vpn-tunnel", dependencies: ["VPNWidgetCore"]),
         .testTarget(name: "VPNWidgetCoreTests", dependencies: ["VPNWidgetCore"]),
     ],
     swiftLanguageModes: [.v6]

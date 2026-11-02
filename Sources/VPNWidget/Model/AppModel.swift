@@ -26,6 +26,8 @@ final class AppModel {
     private let engine: PollEngine
     private let notifier: GatedNotifier
     private var pending: [String: PendingAction] = [:]
+    /// The last sign-in attempt whose page was opened, per profile.
+    private var openedSignIn: [String: Int] = [:]
     private var tasks: [Task<Void, Never>] = []
     private var ticker: Task<Void, Never>?
 
@@ -61,9 +63,10 @@ final class AppModel {
             ports = PollEngine.Ports(directory: system, controller: system, interfaces: system, checker: system, notifier: gated)
             if loaded.profiles.isEmpty { loaded = StoredConfig(profiles: FakeSystem.profiles) }
         } else {
+            let composite = CompositeController(system: ConnectionControllerSC(), systemDirectory: ServiceDirectorySC(), tunnels: TunnelControllerLaunchd())
             ports = PollEngine.Ports(
-                directory: ServiceDirectorySC(),
-                controller: ConnectionControllerSC(),
+                directory: composite,
+                controller: composite,
                 interfaces: InterfaceMapSC(),
                 checker: ReachabilityCheckerURLSession(),
                 notifier: gated,
@@ -109,6 +112,26 @@ final class AppModel {
         rows = newRows
         aggregate = AggregateState(snapshot: snapshot)
         updateTicker()
+        openPendingSignIns()
+    }
+
+    /// Opens the SAML page of an own tunnel in the browser, once per attempt.
+    private func openPendingSignIns() {
+        for row in rows {
+            guard let url = row.signInURL, row.phase == .waitingForSignIn else {
+                if row.phase.isUp || row.phase == .disconnected { openedSignIn[row.id] = nil }
+                continue
+            }
+            if openedSignIn[row.id] != row.signInAttempt {
+                openedSignIn[row.id] = row.signInAttempt
+                NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    func openSignInPage(_ id: String) {
+        guard let url = rows.first(where: { $0.id == id })?.signInURL else { return }
+        NSWorkspace.shared.open(url)
     }
 
     /// Which shown profiles are up, in panel order, for the icon's ring.
@@ -281,6 +304,75 @@ final class AppModel {
             if text != "cancelled" { settingsError = "Resolver files: \(text)" }
         }
         refreshResolverStatuses()
+    }
+
+    // MARK: Own tunnels
+
+    var tunnelSetupStatus: TunnelInstaller.SetupStatus {
+        isFake ? .ready : TunnelInstaller.setupStatus()
+    }
+
+    var missingTunnelTools: [String] { isFake ? [] : TunnelInstaller.missingTools() }
+
+    /// Profiles that are own tunnels, shown or not.
+    var ownTunnels: [VPNProfile] { config.profiles.filter(\.isOwnTunnel) }
+
+    func setUpTunnels() {
+        do {
+            try TunnelInstaller.setUp()
+            settingsError = nil
+        } catch {
+            let text = "\(error)"
+            if text != "cancelled" { settingsError = "Set up tunnels: \(text)" }
+        }
+        refresh()
+    }
+
+    /// Installs a new or changed tunnel through the admin prompt, then shows
+    /// it in the panel.
+    func saveTunnel(_ profile: VPNProfile, password: String?) -> Bool {
+        guard profile.isOwnTunnel else { return false }
+        do {
+            try TunnelInstaller.install(profile, password: password)
+        } catch {
+            let text = "\(error)"
+            if text != "cancelled" { settingsError = "Install tunnel: \(text)" }
+            return false
+        }
+        var profiles = config.profiles
+        if let i = profiles.firstIndex(where: { $0.id == profile.id }) {
+            profiles[i] = profile
+        } else {
+            profiles.append(profile)
+        }
+        saveProfiles(profiles)
+        settingsError = nil
+        return true
+    }
+
+    func removeTunnel(_ id: String) {
+        guard let name = TunnelConfig.name(fromProfileID: id) else { return }
+        do {
+            try TunnelInstaller.remove(name: name)
+        } catch {
+            let text = "\(error)"
+            if text != "cancelled" { settingsError = "Remove tunnel: \(text)" }
+            return
+        }
+        saveProfiles(config.profiles.filter { $0.id != id })
+        settingsError = nil
+    }
+
+    /// Whether the daemon's copy of a tunnel's profile differs from the
+    /// settings here, so that DNS or check changes still need applying.
+    func tunnelNeedsApply(_ profile: VPNProfile) -> Bool {
+        guard let name = TunnelConfig.name(fromProfileID: profile.id) else { return false }
+        guard let installed = TunnelControllerLaunchd.installedProfile(name) else { return true }
+        var a = installed
+        var b = profile
+        a.tunnel?.hasSecret = false
+        b.tunnel?.hasSecret = false
+        return a != b
     }
 
     // MARK: Icon animation

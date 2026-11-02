@@ -28,6 +28,7 @@ SWIFT       := swift
 
 build:
 	$(SWIFT) build -c $(CONFIG) --product $(EXECUTABLE)
+	$(SWIFT) build -c $(CONFIG) --product vpn-tunnel
 	$(SWIFT) build -c $(CONFIG) --product vpnw
 
 test:
@@ -41,7 +42,7 @@ $(DIST)/AppIcon.icns: scripts/make-icon.swift
 icon: $(DIST)/AppIcon.icns
 
 app: build $(DIST)/AppIcon.icns
-	scripts/make-app.sh "$(APP)" "$$($(SWIFT) build -c $(CONFIG) --show-bin-path)/$(EXECUTABLE)" "$(DIST)/AppIcon.icns" "$(BUNDLE_ID)" "$(VERSION)" "$(BUILD)"
+	scripts/make-app.sh "$(APP)" "$$($(SWIFT) build -c $(CONFIG) --show-bin-path)/$(EXECUTABLE)" "$(DIST)/AppIcon.icns" "$(BUNDLE_ID)" "$(VERSION)" "$(BUILD)" "$$($(SWIFT) build -c $(CONFIG) --show-bin-path)/vpn-tunnel"
 
 run: app
 	open "$(APP)"

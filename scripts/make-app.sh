@@ -1,6 +1,7 @@
 #!/bin/sh
 # Wraps the built executable in an .app bundle and signs it ad hoc.
-# usage: make-app.sh <app path> <executable> <icns> <bundle id> <version> <build>
+# usage: make-app.sh <app path> <executable> <icns> <bundle id> <version> <build> [<helper>...]
+# Helpers (vpn-tunnel) go next to the executable in Contents/MacOS.
 set -eu
 
 APP=$1
@@ -9,12 +10,16 @@ ICNS=$3
 BUNDLE_ID=$4
 VERSION=$5
 BUILD=$6
+shift 6
 NAME=$(basename "$APP" .app)
 EXE_NAME=$(basename "$EXECUTABLE")
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$EXECUTABLE" "$APP/Contents/MacOS/$EXE_NAME"
+for helper in "$@"; do
+	cp "$helper" "$APP/Contents/MacOS/$(basename "$helper")"
+done
 cp "$ICNS" "$APP/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 

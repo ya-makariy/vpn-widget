@@ -36,9 +36,17 @@ struct ProfileRowView: View {
                 .font(.caption2)
             }
             if row.phase == .waitingForSignIn {
-                Text(row.clientHint ?? "Finish signing in in \(row.kind.displayName).")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(row.clientHint ?? "Finish signing in in \(row.kind.displayName).")
+                    if row.signInURL != nil {
+                        Spacer()
+                        Button("Open page") { model.openSignInPage(row.id) }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.tint)
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 10)

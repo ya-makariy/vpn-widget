@@ -42,8 +42,9 @@ struct Main {
         }
     }
 
-    static let directory = ServiceDirectorySC()
-    static let controller = ConnectionControllerSC()
+    static let composite = CompositeController(system: ConnectionControllerSC(), systemDirectory: ServiceDirectorySC(), tunnels: TunnelControllerLaunchd())
+    static let directory: any ServiceDirectory = composite
+    static let controller: any ConnectionController = composite
     static let interfaces = InterfaceMapSC()
 
     static func resolve(_ target: String) async throws -> DiscoveredService {

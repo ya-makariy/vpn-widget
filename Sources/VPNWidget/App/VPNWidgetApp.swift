@@ -51,7 +51,7 @@ struct StatusIconLabel: View {
                 // VPNWIDGET_PREVIEW=1 opens the panel in a window; "settings" also opens Settings.
                 guard let preview = ProcessInfo.processInfo.environment["VPNWIDGET_PREVIEW"] else { return }
                 openWindow(id: "panel-preview")
-                if preview == "settings" { SettingsOpener.open(with: openSettings) }
+                if preview.hasPrefix("settings") { SettingsOpener.open(with: openSettings) }
                 NSApp.activate()
             }
     }

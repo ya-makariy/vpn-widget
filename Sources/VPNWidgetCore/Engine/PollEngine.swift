@@ -199,6 +199,17 @@ public actor PollEngine {
         guard state.state == .connected else {
             tracker.forget(key: key)
             firstConnected[profile.id] = nil
+            if profile.isOwnTunnel, let extended = await ports.controller.extendedStatus(of: profile.id) {
+                state.failure = state.state == .failed ? extended.message : nil
+                if state.state == .connecting, let url = extended.signInURL {
+                    state.signInURL = url
+                    state.signInAttempt = extended.signInAttempt
+                    state.clientHint = extended.message ?? "Sign in in the browser"
+                    state.transitionSince = state.transitionSince ?? extended.lastChange
+                } else if state.state == .connecting, let message = extended.message {
+                    state.clientHint = message
+                }
+            }
             return state
         }
 
