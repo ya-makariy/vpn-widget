@@ -19,7 +19,7 @@ public struct SystemProviderHooks: ProviderHooks {
             guard await Self.openClient(.forticlient) else {
                 throw ActionError("FortiClient is not installed")
             }
-            return .handedToClient(hint: "Choose \(name ?? profile.displayName) in FortiClient and click Connect")
+            return .handedToClient(hint: FortiClientConfig.connectHint())
         case .anyconnect:
             if let name, let url = Self.anyConnectURL(connect: name), await Self.open(url) {
                 return .handedToClient(hint: "Enter your credentials in AnyConnect")
