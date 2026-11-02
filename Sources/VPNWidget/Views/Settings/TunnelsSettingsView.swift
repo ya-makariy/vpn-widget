@@ -21,7 +21,7 @@ struct TunnelsSettingsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(profile.displayName)
                             if let t = profile.tunnel {
-                                Text("\(t.kind.displayName) · \(t.host):\(t.port)\(t.saml ? " · SAML" : "")")
+                                Text(verbatim: "\(t.kind.displayName) · \(t.host):\(String(t.port))\(t.saml ? " · SAML" : "")")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
