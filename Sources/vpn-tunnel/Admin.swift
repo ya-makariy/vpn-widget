@@ -62,7 +62,7 @@ enum Admin {
         guard TunnelConfig.isValidName(name) else { throw ActionError("invalid tunnel name") }
         let data = try Data(contentsOf: URL(fileURLWithPath: stagedConfig))
         var profile = try TunnelState.decoder.decode(VPNProfile.self, from: data)
-        guard var tunnel = profile.tunnel, tunnel.name == name else { throw ActionError("the profile is not for tunnel \(name)") }
+        guard var tunnel = profile.tunnel?.normalized, tunnel.name == name else { throw ActionError("the profile is not for tunnel \(name)") }
         let fm = FileManager.default
         if let stagedSecret {
             let secret = try Data(contentsOf: URL(fileURLWithPath: stagedSecret))

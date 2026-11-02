@@ -169,6 +169,35 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
         extraArguments = try c.decodeIfPresent([String].self, forKey: .extraArguments) ?? []
     }
 
+    /// What a gateway typed as a URL or as FortiClient writes it
+    /// (`host/realm`) means: the host, the port when given, and the realm
+    /// when the path is one.
+    public struct GatewayParts: Equatable, Sendable {
+        public var host: String
+        public var port: Int?
+        public var realm: String?
+    }
+
+    public static func parseGateway(_ text: String) -> GatewayParts? {
+        var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return nil }
+        if !s.contains("://") { s = "https://" + s }
+        guard let url = URL(string: s), let host = url.host(percentEncoded: false), !host.isEmpty else { return nil }
+        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let realm = path.isEmpty || path.contains("/") ? nil : path
+        return GatewayParts(host: host.lowercased(), port: url.port, realm: realm)
+    }
+
+    /// The config with its host cleaned up, in case a URL was typed or written by hand.
+    public var normalized: TunnelConfig {
+        guard let parts = TunnelConfig.parseGateway(host) else { return self }
+        var copy = self
+        copy.host = parts.host
+        if let port = parts.port { copy.port = port }
+        if copy.realm?.isEmpty ?? true, let realm = parts.realm { copy.realm = realm }
+        return copy
+    }
+
     public static let profileIDPrefix = "tunnel:"
 
     public static func profileID(name: String) -> String { profileIDPrefix + name }

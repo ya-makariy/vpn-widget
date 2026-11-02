@@ -32,6 +32,23 @@ import Testing
         #expect(!ProviderKind.forticlient.isOwnTunnel)
     }
 
+    @Test func gatewayParsing() {
+        #expect(TunnelConfig.parseGateway("fg.example.com") == .init(host: "fg.example.com", port: nil, realm: nil))
+        #expect(TunnelConfig.parseGateway("https://fg.example.com/sso:8443") == nil || TunnelConfig.parseGateway("https://fg.example.com/sso:8443")?.host == "fg.example.com")
+        #expect(TunnelConfig.parseGateway("https://fg.example.com:8443/sso") == .init(host: "fg.example.com", port: 8443, realm: "sso"))
+        #expect(TunnelConfig.parseGateway("fg.example.com/sso") == .init(host: "fg.example.com", port: nil, realm: "sso"))
+        #expect(TunnelConfig.parseGateway("FG.Example.com:10443/") == .init(host: "fg.example.com", port: 10443, realm: nil))
+        #expect(TunnelConfig.parseGateway("https://fg.example.com/a/b") == .init(host: "fg.example.com", port: nil, realm: nil))
+        #expect(TunnelConfig.parseGateway("  ") == nil)
+        let t = TunnelConfig(name: "x", kind: .openfortivpn, host: "https://fg.example.com:8443/sso", port: 443, saml: true).normalized
+        #expect(t.host == "fg.example.com")
+        #expect(t.port == 8443)
+        #expect(t.realm == "sso")
+        let keep = TunnelConfig(name: "x", kind: .openfortivpn, host: "fg.example.com/sso", port: 8443, realm: "other").normalized
+        #expect(keep.realm == "other")
+        #expect(keep.port == 8443)
+    }
+
     @Test func codingDefaults() throws {
         let json = #"{"name":"x","kind":"openconnect","host":"h"}"#.data(using: .utf8)!
         let t = try JSONDecoder().decode(TunnelConfig.self, from: json)

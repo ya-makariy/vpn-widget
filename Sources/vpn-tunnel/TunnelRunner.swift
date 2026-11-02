@@ -7,7 +7,7 @@ import VPNWidgetCore
 /// SAML sign-in nobody answers is retried quietly, without a new page.
 final class TunnelRunner: @unchecked Sendable {
     let name: String
-    let profile: VPNProfile
+    private(set) var profile: VPNProfile
     let tunnel: TunnelConfig
 
     private let lock = NSLock()
@@ -27,8 +27,9 @@ final class TunnelRunner: @unchecked Sendable {
         self.name = name
         let data = try Data(contentsOf: URL(fileURLWithPath: TunnelFiles.configPath(name)))
         profile = try TunnelState.decoder.decode(VPNProfile.self, from: data)
-        guard let tunnel = profile.tunnel else { throw ActionError("not a tunnel profile") }
+        guard let tunnel = profile.tunnel?.normalized else { throw ActionError("not a tunnel profile") }
         self.tunnel = tunnel
+        profile.tunnel = tunnel
         state = TunnelState(phase: .starting, since: Date(), pid: getpid())
     }
 

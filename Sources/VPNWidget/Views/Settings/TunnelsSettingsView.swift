@@ -134,7 +134,7 @@ struct TunnelEditorView: View {
 
     private var canSave: Bool {
         guard let t = profile.tunnel else { return false }
-        return TunnelConfig.isValidName(t.name) && !t.host.isEmpty && (1...65535).contains(t.port) && !profile.displayName.isEmpty
+        return TunnelConfig.isValidName(t.name) && TunnelConfig.parseGateway(t.host) != nil && (1...65535).contains(t.port) && !profile.displayName.isEmpty
             && (kind != .openconnect || !(t.username ?? "").isEmpty)
     }
 
@@ -152,6 +152,12 @@ struct TunnelEditorView: View {
                         .font(.body.monospaced())
                     TextField("Gateway host", text: tunnel.host, prompt: Text("vpn.example.com"))
                         .autocorrectionDisabled()
+                        .onSubmit(normalizeGateway)
+                    if let parts = TunnelConfig.parseGateway(tunnel.wrappedValue.host), parts.host != tunnel.wrappedValue.host || parts.port != nil || parts.realm != nil {
+                        Text("Will use host \(parts.host)\(parts.port.map { ", port \($0)" } ?? "")\(parts.realm.map { ", realm \($0)" } ?? "")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     TextField("Port", value: tunnel.port, format: .number.grouping(.never))
                 }
                 if kind == .openfortivpn {
@@ -211,7 +217,12 @@ struct TunnelEditorView: View {
         Binding(get: { binding.wrappedValue ?? "" }, set: { binding.wrappedValue = $0.isEmpty ? nil : $0 })
     }
 
+    private func normalizeGateway() {
+        if let t = profile.tunnel { profile.tunnel = t.normalized }
+    }
+
     private func save() {
+        normalizeGateway()
         var p = profile
         p.dnsDomains = domainsText.split(whereSeparator: { $0 == " " || $0 == "," }).compactMap { ResolverFiles.normalizeDomain(String($0)) }
         p.dnsServers = serversText.split(whereSeparator: { $0 == " " || $0 == "," }).map(String.init).filter(ResolverFiles.isServer)
