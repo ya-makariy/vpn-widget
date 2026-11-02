@@ -79,11 +79,32 @@ enum Admin {
         try writeRoot(encoded, to: TunnelFiles.configPath(name), mode: 0o600)
         try fm.createDirectory(atPath: TunnelFiles.stateDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755])
         try writeRoot(encoded, to: TunnelFiles.publicProfilePath(name), mode: 0o644)
+        // The job itself only changes when its plist does: a running tunnel
+        // keeps running through a config change, and picks it up next start.
         let plistPath = TunnelFiles.plistPath(name)
-        let existed = fm.fileExists(atPath: plistPath)
-        try writeRoot(TunnelFiles.launchdPlist(name: name), to: plistPath, mode: 0o644)
-        if existed { _ = launchctl(["bootout", "system/\(TunnelFiles.label(name))"]) }
-        let status = launchctl(["bootstrap", "system", plistPath])
+        let label = "system/\(TunnelFiles.label(name))"
+        let plist = TunnelFiles.launchdPlist(name: name)
+        let unchanged = (try? String(contentsOfFile: plistPath, encoding: .utf8)) == plist
+        if unchanged, launchctl(["print", label]) == 0 {
+            log("updated tunnel \(name); the job is loaded already")
+            return
+        }
+        if fm.fileExists(atPath: plistPath) {
+            _ = launchctl(["kill", "TERM", label])
+            _ = launchctl(["bootout", label])
+            // bootout returns before the job is gone; bootstrap needs it gone.
+            for _ in 0..<40 where launchctl(["print", label]) == 0 {
+                Thread.sleep(forTimeInterval: 0.25)
+            }
+        }
+        try writeRoot(plist, to: plistPath, mode: 0o644)
+        var status: Int32 = -1
+        for attempt in 0..<10 {
+            status = launchctl(["bootstrap", "system", plistPath])
+            if status == 0 { break }
+            log("bootstrap attempt \(attempt + 1) failed (\(status)); retrying")
+            Thread.sleep(forTimeInterval: 0.5)
+        }
         guard status == 0 else { throw ActionError("launchctl bootstrap failed (\(status))") }
         log("installed tunnel \(name)")
     }

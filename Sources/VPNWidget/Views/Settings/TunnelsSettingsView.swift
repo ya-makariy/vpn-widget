@@ -116,6 +116,7 @@ struct TunnelEditorView: View {
     @State private var password = ""
     @State private var nameEdited = false
     @State private var saving = false
+    @State private var errorText: String?
     @State private var domainsText: String
     @State private var serversText: String
 
@@ -201,6 +202,13 @@ struct TunnelEditorView: View {
             Divider()
             HStack {
                 if saving { ProgressView().controlSize(.small) }
+                if let errorText {
+                    Label(errorText, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                        .lineLimit(2)
+                        .textSelection(.enabled)
+                }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(isNew ? "Install…" : "Apply…") { save() }
@@ -229,8 +237,14 @@ struct TunnelEditorView: View {
         if let t = p.tunnel { p.id = TunnelConfig.profileID(name: t.name) }
         if p.providerKind != kind.providerKind { p.providerKind = kind.providerKind }
         saving = true
+        errorText = nil
         let ok = model.saveTunnel(p, password: password.isEmpty ? nil : password)
         saving = false
-        if ok { dismiss() }
+        if ok {
+            dismiss()
+        } else {
+            errorText = model.settingsError
+            model.settingsError = nil
+        }
     }
 }
