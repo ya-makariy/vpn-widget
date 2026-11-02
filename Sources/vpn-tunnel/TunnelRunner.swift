@@ -192,6 +192,11 @@ final class TunnelRunner: @unchecked Sendable {
             sessionStarted = Date()
             backoff.reset()
             let name = interface ?? guessInterface(address: address)
+            // DNS first, state second: the widget checks the service as soon
+            // as it sees "connected", and a lookup that goes out before the
+            // resolver files exist comes back NXDOMAIN and gets cached.
+            write { $0.interfaceName = name }
+            writeResolverFiles()
             write {
                 $0.phase = .connected
                 $0.since = Date()
@@ -201,7 +206,6 @@ final class TunnelRunner: @unchecked Sendable {
                 $0.message = nil
             }
             signInPromptDue = true
-            writeResolverFiles()
         case .down(let why):
             lastError = why
         case .authenticationFailed(let why):
@@ -260,6 +264,10 @@ final class TunnelRunner: @unchecked Sendable {
         } catch {
             log("resolver files: \(error)")
         }
+        if let interface = currentState.interfaceName {
+            routeDNSServers(servers, via: interface)
+        }
+        flushDNSCache()
     }
 
     private func removeResolverFiles() {
@@ -269,7 +277,53 @@ final class TunnelRunner: @unchecked Sendable {
                 try? FileManager.default.removeItem(atPath: path)
             }
         }
+        if !resolverDomains.isEmpty { flushDNSCache() }
         resolverDomains = []
+        for server in routedServers {
+            _ = Self.run("/sbin/route", ["-n", "delete", "-host", server])
+        }
+        routedServers = []
+    }
+
+    private var routedServers: [String] = []
+
+    /// The gateway's DNS servers have to be reachable through the tunnel; a
+    /// gateway does not always push a route to them, and the vpnc-script
+    /// wrapper hides the DNS from vpnc-script on purpose.
+    private func routeDNSServers(_ servers: [String], via interface: String) {
+        for server in servers where !server.contains(":") {
+            let (status, output) = Self.run("/sbin/route", ["-n", "get", server])
+            let via = output.split(separator: "\n").first { $0.contains("interface:") }?.split(separator: ":").last?.trimmingCharacters(in: .whitespaces)
+            if status == 0, via == interface { continue }
+            let (added, text) = Self.run("/sbin/route", ["-n", "add", "-host", server, "-interface", interface])
+            if added == 0 {
+                routedServers.append(server)
+                log("route to DNS \(server) via \(interface)")
+            } else {
+                log("route to DNS \(server): \(text.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
+        }
+    }
+
+    /// mDNSResponder notices new resolver files, but keeps cached answers,
+    /// including the negative ones from before the tunnel.
+    private func flushDNSCache() {
+        _ = Self.run("/usr/bin/dscacheutil", ["-flushcache"])
+        _ = Self.run("/usr/bin/killall", ["-HUP", "mDNSResponder"])
+    }
+
+    @discardableResult
+    static func run(_ path: String, _ arguments: [String]) -> (Int32, String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.arguments = arguments
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = pipe
+        do { try p.run() } catch { return (-1, "\(error)") }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return (p.terminationStatus, String(decoding: data, as: UTF8.self))
     }
 
     /// What the vpnc-script wrapper recorded: DNS servers, then the domain.

@@ -17,6 +17,7 @@ final class AppModel {
     private(set) var blinkOn = true
     private(set) var lastPoll: Date?
     private(set) var resolverStatuses: [String: ResolverFiles.Status] = [:]
+    private(set) var tunnelSetupStatus: TunnelInstaller.SetupStatus = .notSetUp
     /// An error from a settings action, for the settings window to show.
     var settingsError: String?
     let settings: SettingsStore
@@ -89,6 +90,7 @@ final class AppModel {
         })
         tasks.append(Task { [engine] in await engine.autoConnect() })
         refreshResolverStatuses()
+        refreshTunnelSetupStatus()
     }
 
     // MARK: Snapshots
@@ -113,6 +115,7 @@ final class AppModel {
         aggregate = AggregateState(snapshot: snapshot)
         updateTicker()
         openPendingSignIns()
+        refreshTunnelSetupStatus()
     }
 
     /// Opens the SAML page of an own tunnel in the browser, once per attempt.
@@ -308,8 +311,8 @@ final class AppModel {
 
     // MARK: Own tunnels
 
-    var tunnelSetupStatus: TunnelInstaller.SetupStatus {
-        isFake ? .ready : TunnelInstaller.setupStatus()
+    func refreshTunnelSetupStatus() {
+        tunnelSetupStatus = isFake ? .ready : TunnelInstaller.setupStatus()
     }
 
     var missingTunnelTools: [String] { isFake ? [] : TunnelInstaller.missingTools() }
@@ -325,6 +328,7 @@ final class AppModel {
             let text = "\(error)"
             if text != "cancelled" { settingsError = "Set up tunnels: \(text)" }
         }
+        refreshTunnelSetupStatus()
         refresh()
     }
 
