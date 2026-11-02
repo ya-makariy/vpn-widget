@@ -5,10 +5,12 @@ import SwiftUI
 /// when its panel is used, so opening the window alone would leave it behind.
 @MainActor
 enum SettingsOpener {
+    /// Asks whichever view holds the `openSettings` action to open the window.
+    static let requested = Notification.Name("com.ya-makariy.vpn-widget.openSettings")
+
     static func open() {
         NSApp.activate()
-        if NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) { return }
-        _ = NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        NotificationCenter.default.post(name: requested, object: nil)
     }
 
     static func open(with action: OpenSettingsAction) {

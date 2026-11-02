@@ -47,6 +47,9 @@ struct StatusIconLabel: View {
     var body: some View {
         Image(nsImage: StatusIconRenderer.shared.image(for: model.aggregate, segments: model.segments, blinkOn: model.blinkOn))
             .accessibilityLabel(StatusIconRenderer.accessibilityLabel(model.aggregate, connected: model.connectedCount, total: model.rows.count))
+            .onReceive(NotificationCenter.default.publisher(for: SettingsOpener.requested)) { _ in
+                SettingsOpener.open(with: openSettings)
+            }
             .onAppear {
                 // VPNWIDGET_PREVIEW=1 opens the panel in a window; "settings" also opens Settings.
                 guard let preview = ProcessInfo.processInfo.environment["VPNWIDGET_PREVIEW"] else { return }
