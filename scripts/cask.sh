@@ -16,7 +16,7 @@ cask "vpn-widget" do
   desc "Menu bar status and control for VPN profiles of FortiClient, AnyConnect, AmneziaWG and WireGuard"
   homepage "https://github.com/ya-makariy/vpn-widget"
 
-  depends_on macos: ">= :tahoe"
+  depends_on macos: :tahoe
 
   app "VPN Widget.app"
 
