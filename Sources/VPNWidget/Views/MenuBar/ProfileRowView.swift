@@ -24,6 +24,20 @@ struct ProfileRowView: View {
                 ProfileDetailsView(row: row)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            if let pin = row.untrustedCertificate {
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.trianglebadge.exclamationmark").foregroundStyle(.orange)
+                    Text("Certificate not trusted: \(pin)")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button("Trust…") { model.trustCertificate(row.id) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.tint)
+                }
+                .font(.caption2)
+            }
             if let error = row.lastError {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)

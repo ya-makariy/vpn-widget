@@ -363,6 +363,17 @@ final class AppModel {
         settingsError = nil
     }
 
+    /// Pins the certificate the tunnel's daemon reported as untrusted, applies
+    /// the change (admin prompt) and connects again.
+    func trustCertificate(_ id: String) {
+        guard var profile = profile(id), var tunnel = profile.tunnel,
+              let value = rows.first(where: { $0.id == id })?.untrustedCertificate
+        else { return }
+        tunnel.trustedCert = value
+        profile.tunnel = tunnel
+        if saveTunnel(profile, password: nil) { connect(id) }
+    }
+
     /// Whether the daemon's copy of a tunnel's profile differs from the
     /// settings here, so that DNS or check changes still need applying.
     func tunnelNeedsApply(_ profile: VPNProfile) -> Bool {

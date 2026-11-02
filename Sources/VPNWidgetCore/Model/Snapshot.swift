@@ -31,6 +31,9 @@ public struct ProfileState: Equatable, Identifiable, Sendable {
     /// number changes when the user should be shown the page again.
     public var signInURL: URL?
     public var signInAttempt: Int
+    /// Own tunnels: the certificate pin or digest to trust, when that is what
+    /// stands in the way.
+    public var untrustedCertificate: String?
 
     public init(
         profile: VPNProfile,
@@ -49,7 +52,8 @@ public struct ProfileState: Equatable, Identifiable, Sendable {
         lastActionError: String? = nil,
         failure: String? = nil,
         signInURL: URL? = nil,
-        signInAttempt: Int = 0
+        signInAttempt: Int = 0,
+        untrustedCertificate: String? = nil
     ) {
         self.profile = profile
         self.state = state
@@ -68,6 +72,7 @@ public struct ProfileState: Equatable, Identifiable, Sendable {
         self.failure = failure
         self.signInURL = signInURL
         self.signInAttempt = signInAttempt
+        self.untrustedCertificate = untrustedCertificate
     }
 
     public var id: String { profile.id }

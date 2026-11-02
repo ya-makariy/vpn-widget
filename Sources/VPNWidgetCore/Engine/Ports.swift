@@ -12,8 +12,9 @@ public struct ExtendedStatus: Equatable, Sendable {
     public var signInURL: URL?
     public var signInAttempt: Int
     public var message: String?
+    public var untrustedCertificate: String?
 
-    public init(lastChange: Date? = nil, dnsServers: [String] = [], dnsSearchDomains: [String] = [], isPrimaryInterface: Bool = false, interfaceName: String? = nil, signInURL: URL? = nil, signInAttempt: Int = 0, message: String? = nil) {
+    public init(lastChange: Date? = nil, dnsServers: [String] = [], dnsSearchDomains: [String] = [], isPrimaryInterface: Bool = false, interfaceName: String? = nil, signInURL: URL? = nil, signInAttempt: Int = 0, message: String? = nil, untrustedCertificate: String? = nil) {
         self.lastChange = lastChange
         self.dnsServers = dnsServers
         self.dnsSearchDomains = dnsSearchDomains
@@ -22,6 +23,7 @@ public struct ExtendedStatus: Equatable, Sendable {
         self.signInURL = signInURL
         self.signInAttempt = signInAttempt
         self.message = message
+        self.untrustedCertificate = untrustedCertificate
     }
 }
 

@@ -130,6 +130,12 @@ import Testing
         #expect(OpenConnectOutput.parse("Failed to connect to host gw.example") == .error("Failed to connect to host gw.example"))
         #expect(OpenConnectOutput.parse("Logout successful.") == .down("Logout successful."))
         #expect(OpenConnectOutput.parse("Got CONNECT response: HTTP/1.1 200 OK") == nil)
+        #expect(OpenConnectOutput.parse("    --servercert pin-sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") == .untrustedCertificate("pin-sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="))
+    }
+
+    @Test func untrustedGatewayCertificates() {
+        #expect(OpenFortiVPNOutput.parse("ERROR:  Gateway certificate validation failed, and the certificate digest is not in the local whitelist. If you trust it, rerun with:") == .error("Gateway certificate validation failed, and the certificate digest is not in the local whitelist. If you trust it, rerun with:"))
+        #expect(OpenFortiVPNOutput.parse("ERROR:      --trusted-cert 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef") == .untrustedCertificate("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"))
     }
 
     @Test func backoff() {
@@ -159,10 +165,11 @@ import Testing
         #expect(s.profiles[0].clientHint == "Sign in in the browser")
 
         await rig.controller.set(p.id, .failed)
-        await rig.controller.setExtended(p.id, ExtendedStatus(message: "Could not authenticate to gateway"))
+        await rig.controller.setExtended(p.id, ExtendedStatus(message: "Could not authenticate to gateway", untrustedCertificate: "pin-sha256:abc="))
         s = await rig.engine.poll()
         #expect(s.profiles[0].state == .failed)
         #expect(s.profiles[0].failure == "Could not authenticate to gateway")
+        #expect(s.profiles[0].untrustedCertificate == "pin-sha256:abc=")
         #expect(s.level == .problem)
         #expect(s.profiles[0].signInURL == nil)
     }

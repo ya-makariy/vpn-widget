@@ -66,7 +66,8 @@ public final class TunnelControllerLaunchd: ConnectionController, ServiceDirecto
             interfaceName: state.interfaceName,
             signInURL: state.signInURL.flatMap(URL.init(string:)),
             signInAttempt: state.signInAttempt,
-            message: state.message
+            message: state.message,
+            untrustedCertificate: state.untrustedCertificate
         )
     }
 

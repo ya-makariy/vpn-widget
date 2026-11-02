@@ -27,10 +27,12 @@ public struct TunnelState: Codable, Equatable, Sendable {
     public var dnsServers: [String]
     /// Why it failed, or what it is waiting for.
     public var message: String?
+    /// What to trust to get past a certificate the system does not know.
+    public var untrustedCertificate: String?
     public var pid: Int32
     public var updated: Date
 
-    public init(phase: Phase, since: Date, connectedSince: Date? = nil, signInURL: String? = nil, signInAttempt: Int = 0, interfaceName: String? = nil, dnsServers: [String] = [], message: String? = nil, pid: Int32 = 0, updated: Date = Date()) {
+    public init(phase: Phase, since: Date, connectedSince: Date? = nil, signInURL: String? = nil, signInAttempt: Int = 0, interfaceName: String? = nil, dnsServers: [String] = [], message: String? = nil, untrustedCertificate: String? = nil, pid: Int32 = 0, updated: Date = Date()) {
         self.phase = phase
         self.since = since
         self.connectedSince = connectedSince
@@ -39,6 +41,7 @@ public struct TunnelState: Codable, Equatable, Sendable {
         self.interfaceName = interfaceName
         self.dnsServers = dnsServers
         self.message = message
+        self.untrustedCertificate = untrustedCertificate
         self.pid = pid
         self.updated = updated
     }

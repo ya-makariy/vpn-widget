@@ -76,6 +76,7 @@ struct ProfileRowState: Identifiable, Equatable, Sendable {
     var signInURL: URL?
     var signInAttempt: Int
     var isOwnTunnel: Bool
+    var untrustedCertificate: String?
 
     /// How long a sign-in client may sit in "connecting" before the row says
     /// it is waiting for the user.
@@ -102,6 +103,7 @@ struct ProfileRowState: Identifiable, Equatable, Sendable {
         signInURL = p.signInURL
         signInAttempt = p.signInAttempt
         isOwnTunnel = p.profile.isOwnTunnel
+        untrustedCertificate = p.untrustedCertificate
         switch p.state {
         case .connected:
             if p.checked, p.result.failed { phase = .connectedNotAnswering }

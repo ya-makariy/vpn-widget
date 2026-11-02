@@ -15,6 +15,9 @@ public enum ToolEvent: Equatable, Sendable {
     case down(String)
     /// Authentication was refused: retrying blindly is pointless.
     case authenticationFailed(String)
+    /// The gateway's certificate is not trusted; the value is what the tool
+    /// wants to be told to trust it (openconnect's pin, openfortivpn's digest).
+    case untrustedCertificate(String)
     /// Something else went wrong; the text is the tool's own.
     case error(String)
 }
@@ -43,6 +46,13 @@ public enum OpenFortiVPNOutput {
         }
         if text.contains("Could not authenticate") || text.contains("Finally failed to retrieve SAML authentication token") || text.contains("Login failed") {
             return .authenticationFailed(text)
+        }
+        if let range = text.range(of: "--trusted-cert ") {
+            let digest = text[range.upperBound...].prefix { $0.isHexDigit }
+            if digest.count >= 32 { return .untrustedCertificate(String(digest)) }
+        }
+        if text.contains("certificate validation failed") || text.contains("certificate digest is not in the local whitelist") {
+            return .error(text.replacingOccurrences(of: "ERROR:", with: "").trimmingCharacters(in: .whitespaces))
         }
         if text.hasPrefix("ERROR:") {
             return .error(text.dropFirst("ERROR:".count).trimmingCharacters(in: .whitespaces))
@@ -75,6 +85,10 @@ public enum OpenConnectOutput {
         }
         if text.contains("Login failed") || text.contains("Failed to obtain WebVPN cookie") || text.contains("Authentication failed") {
             return .authenticationFailed(text)
+        }
+        if let range = text.range(of: "--servercert ") {
+            let pin = text[range.upperBound...].prefix { !$0.isWhitespace }
+            if pin.hasPrefix("pin-sha256:") { return .untrustedCertificate(String(pin)) }
         }
         if text.contains("Failed to connect to host") || text.contains("Failed to open HTTPS connection") || text.contains("SSL connection failure") {
             return .error(text)

@@ -201,6 +201,7 @@ public actor PollEngine {
             firstConnected[profile.id] = nil
             if profile.isOwnTunnel, let extended = await ports.controller.extendedStatus(of: profile.id) {
                 state.failure = state.state == .failed ? extended.message : nil
+                state.untrustedCertificate = state.state == .failed ? extended.untrustedCertificate : nil
                 if state.state == .connecting, let url = extended.signInURL {
                     state.signInURL = url
                     state.signInAttempt = extended.signInAttempt

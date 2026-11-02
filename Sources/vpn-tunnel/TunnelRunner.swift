@@ -19,7 +19,8 @@ final class TunnelRunner: @unchecked Sendable {
     private var signInPromptDue = true
     private var sessionStarted: Date?
     private var sawSignInTimeout = false
-    private var sawAuthenticationFailure = false
+    private var fatal: String?
+    private var untrustedCertificate: String?
     private var lastError: String?
 
     init(name: String) throws {
@@ -44,15 +45,17 @@ final class TunnelRunner: @unchecked Sendable {
             let started = Date()
             sessionStarted = nil
             sawSignInTimeout = false
-            sawAuthenticationFailure = false
+            fatal = nil
+            untrustedCertificate = nil
             lastError = nil
             let status = runOnce()
             removeResolverFiles()
             if isStopping { break }
             let lasted = sessionStarted.map { Date().timeIntervalSince($0) } ?? 0
-            if sawAuthenticationFailure {
-                write { $0.phase = .failed; $0.since = Date(); $0.message = lastError ?? "authentication failed"; $0.connectedSince = nil; $0.interfaceName = nil }
-                log("authentication failed; not retrying")
+            if let fatal {
+                let pin = untrustedCertificate
+                write { $0.phase = .failed; $0.since = Date(); $0.message = fatal; $0.untrustedCertificate = pin; $0.connectedSince = nil; $0.interfaceName = nil; $0.signInURL = nil }
+                log("\(fatal); not retrying")
                 return 1
             }
             if sawSignInTimeout {
@@ -132,8 +135,7 @@ final class TunnelRunner: @unchecked Sendable {
         do {
             launch = try Drivers.launch(for: profile)
         } catch {
-            lastError = "\(error)"
-            sawAuthenticationFailure = true
+            fatal = "\(error)"
             return 1
         }
         let process = Process()
@@ -203,8 +205,12 @@ final class TunnelRunner: @unchecked Sendable {
         case .down(let why):
             lastError = why
         case .authenticationFailed(let why):
-            sawAuthenticationFailure = true
+            fatal = "Authentication failed: \(why)"
             lastError = why
+        case .untrustedCertificate(let value):
+            untrustedCertificate = value
+            fatal = "The gateway's certificate is not trusted"
+            lastError = fatal
         case .error(let why):
             lastError = why
         }
