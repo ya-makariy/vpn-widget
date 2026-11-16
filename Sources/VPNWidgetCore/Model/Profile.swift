@@ -117,6 +117,25 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
         }
     }
 
+    /// How much of what the daemon and its tool say goes to the log.
+    public enum LogLevel: String, Codable, CaseIterable, Comparable, Sendable {
+        case error
+        case info
+        case debug
+        case trace
+
+        public var displayName: String { rawValue.uppercased() }
+
+        private var rank: Int { Self.allCases.firstIndex(of: self) ?? 0 }
+        public static func < (a: LogLevel, b: LogLevel) -> Bool { a.rank < b.rank }
+
+        /// Whether a line of level `line` is written at this setting.
+        public func includes(_ line: LogLevel) -> Bool { line <= self }
+    }
+
+    public static let defaultLogRetentionDays = 7
+    public static let logRetentionRange = 1...365
+
     /// A short name: letters, digits and dashes. It names the daemon, its
     /// files and the profile.
     public var name: String
@@ -135,8 +154,11 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
     /// openconnect: `--protocol`, anyconnect when nil.
     public var protocolName: String?
     public var extraArguments: [String]
+    public var logLevel: LogLevel
+    /// How many days of rotated, compressed logs are kept.
+    public var logRetentionDays: Int
 
-    public init(name: String, kind: Kind, host: String, port: Int, realm: String? = nil, saml: Bool = false, username: String? = nil, hasSecret: Bool = false, trustedCert: String? = nil, protocolName: String? = nil, extraArguments: [String] = []) {
+    public init(name: String, kind: Kind, host: String, port: Int, realm: String? = nil, saml: Bool = false, username: String? = nil, hasSecret: Bool = false, trustedCert: String? = nil, protocolName: String? = nil, extraArguments: [String] = [], logLevel: LogLevel = .info, logRetentionDays: Int = TunnelConfig.defaultLogRetentionDays) {
         self.name = name
         self.kind = kind
         self.host = host
@@ -148,10 +170,12 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
         self.trustedCert = trustedCert
         self.protocolName = protocolName
         self.extraArguments = extraArguments
+        self.logLevel = logLevel
+        self.logRetentionDays = logRetentionDays
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, kind, host, port, realm, saml, username, hasSecret, trustedCert, protocolName, extraArguments
+        case name, kind, host, port, realm, saml, username, hasSecret, trustedCert, protocolName, extraArguments, logLevel, logRetentionDays
     }
 
     public init(from decoder: any Decoder) throws {
@@ -167,6 +191,10 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
         trustedCert = try c.decodeIfPresent(String.self, forKey: .trustedCert)
         protocolName = try c.decodeIfPresent(String.self, forKey: .protocolName)
         extraArguments = try c.decodeIfPresent([String].self, forKey: .extraArguments) ?? []
+        // A level this version does not know reads as the default.
+        logLevel = (try? c.decodeIfPresent(LogLevel.self, forKey: .logLevel)) ?? .info
+        let days = try c.decodeIfPresent(Int.self, forKey: .logRetentionDays) ?? Self.defaultLogRetentionDays
+        logRetentionDays = min(max(days, Self.logRetentionRange.lowerBound), Self.logRetentionRange.upperBound)
     }
 
     /// What a gateway typed as a URL or as FortiClient writes it

@@ -242,3 +242,79 @@ import Testing
         #expect(TunnelLog.lastLines("a\nb\n", 0) == "")
     }
 }
+
+@Suite struct TunnelLogRotationTests {
+    private var calendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Asia/Tashkent")!
+        return c
+    }
+
+    private func date(_ text: String) -> Date { ISO8601DateFormatter().date(from: text)! }
+
+    @Test func daysAreLocal() {
+        // 20:30 UTC is already the next day at UTC+5.
+        #expect(TunnelLogRotation.day(date("2026-11-15T20:30:00Z"), calendar: calendar) == "2026-11-16")
+        #expect(TunnelLogRotation.day(date("2026-11-15T18:30:00Z"), calendar: calendar) == "2026-11-15")
+    }
+
+    @Test func dueAfterMidnight() {
+        let now = date("2026-11-15T19:00:10Z") // 00:00:10 on the 16th
+        #expect(TunnelLogRotation.isDue(modified: date("2026-11-15T18:59:50Z"), now: now, calendar: calendar))
+        #expect(!TunnelLogRotation.isDue(modified: date("2026-11-15T19:00:05Z"), now: now, calendar: calendar))
+        #expect(TunnelLogRotation.isDue(modified: date("2026-11-01T10:00:00Z"), now: now, calendar: calendar))
+    }
+
+    @Test func archiveNames() {
+        #expect(TunnelLogRotation.archivePath(name: "corp", day: "2026-11-15") == "/var/log/vpn-widget/corp.2026-11-15.log")
+        #expect(TunnelLogRotation.archivePath(name: "corp", day: "2026-11-15", sequence: 2) == "/var/log/vpn-widget/corp.2026-11-15-2.log")
+        #expect(TunnelLogRotation.archiveDay(fileName: "corp.2026-11-15.log.gz", name: "corp") == "2026-11-15")
+        #expect(TunnelLogRotation.archiveDay(fileName: "corp.2026-11-15.log", name: "corp") == "2026-11-15")
+        #expect(TunnelLogRotation.archiveDay(fileName: "corp.2026-11-15-2.log.gz", name: "corp") == "2026-11-15")
+        #expect(TunnelLogRotation.archiveDay(fileName: "corp.log", name: "corp") == nil)
+        #expect(TunnelLogRotation.archiveDay(fileName: "corp-sso.2026-11-15.log.gz", name: "corp") == nil)
+        #expect(TunnelLogRotation.archiveDay(fileName: "corp.2026-11-15x.log.gz", name: "corp") == nil)
+        #expect(TunnelLogRotation.archiveDay(fileName: "corp.notes.log", name: "corp") == nil)
+    }
+
+    @Test func retention() {
+        let files = ["corp.log", "corp.2026-11-15.log.gz", "corp.2026-11-09.log.gz", "corp.2026-11-08.log.gz", "corp.2026-10-01.log", "other.2026-01-01.log.gz"]
+        let now = date("2026-11-16T07:00:00Z")
+        #expect(TunnelLogRotation.expired(fileNames: files, name: "corp", now: now, keepDays: 7, calendar: calendar) == ["corp.2026-10-01.log", "corp.2026-11-08.log.gz"])
+        #expect(TunnelLogRotation.expired(fileNames: files, name: "corp", now: now, keepDays: 1, calendar: calendar) == ["corp.2026-10-01.log", "corp.2026-11-08.log.gz", "corp.2026-11-09.log.gz"])
+        #expect(TunnelLogRotation.expired(fileNames: files, name: "corp", now: now, keepDays: 365, calendar: calendar).isEmpty)
+    }
+
+    @Test func levels() {
+        typealias Level = TunnelConfig.LogLevel
+        #expect(Level.info.includes(.error) && Level.info.includes(.info))
+        #expect(!Level.info.includes(.debug) && !Level.error.includes(.info))
+        #expect(Level.trace.includes(.debug) && !Level.debug.includes(.trace))
+        #expect(Level.ofToolLine("ERROR:  Could not authenticate") == .error)
+        #expect(Level.ofToolLine("WARN:   Bad port") == .info)
+        #expect(Level.ofToolLine("INFO:   Tunnel is up and running.") == .info)
+        #expect(Level.ofToolLine("DEBUG:  Got Address: 10.0.0.2") == .debug)
+        #expect(Level.ofToolLine("DEBUG:  pppd ---> gateway (20 bytes)") == .trace)
+        #expect(Level.ofToolLine("Connected as 10.0.0.2, using SSL") == .info)
+        #expect(Level.ofToolLine("Failed to connect to host gw.example") == .error)
+        #expect(Level.info.toolArguments(.openfortivpn) == ["-v"])
+        #expect(Level.trace.toolArguments(.openfortivpn) == ["-v", "-v"])
+        #expect(Level.info.toolArguments(.openconnect).isEmpty)
+        #expect(Level.debug.toolArguments(.openconnect) == ["-v"])
+    }
+
+    @Test func configDefaultsAndCoding() throws {
+        let old = #"{"name":"corp","kind":"openconnect","host":"gw.example"}"#
+        let decoded = try JSONDecoder().decode(TunnelConfig.self, from: Data(old.utf8))
+        #expect(decoded.logLevel == .info)
+        #expect(decoded.logRetentionDays == 7)
+        var config = decoded
+        config.logLevel = .trace
+        config.logRetentionDays = 30
+        #expect(try JSONDecoder().decode(TunnelConfig.self, from: JSONEncoder().encode(config)) == config)
+        let odd = #"{"name":"corp","kind":"openconnect","host":"gw.example","logLevel":"loud","logRetentionDays":0}"#
+        let lenient = try JSONDecoder().decode(TunnelConfig.self, from: Data(odd.utf8))
+        #expect(lenient.logLevel == .info)
+        #expect(lenient.logRetentionDays == 1)
+    }
+}

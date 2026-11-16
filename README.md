@@ -97,6 +97,13 @@ Configs live root-only in `/usr/local/etc/vpn-widget`, logs in
 `/var/log/vpn-widget/<name>.log`, state in `/var/run/vpn-widget`. Tunnels
 outlive the widget: quitting it leaves them up.
 
+The daemon rotates its log every day at midnight (local time): the day's file
+becomes `<name>.<date>.log.gz`, and archives older than the tunnel's retention,
+7 days unless changed, are deleted. A tunnel that was not running at midnight
+rotates at its next start. The tunnel's form has both settings under **Log**:
+the retention, and the level — `ERROR` (failures only), `INFO` (the default),
+`DEBUG` (the tool's debug output too) or `TRACE` (with packet traces).
+
 To see why a tunnel does not come up, open its log: **Show Log** in the row's
 `…` menu in the panel, or **Log** next to the tunnel in Settings → Tunnels. The
 window shows the end of the file (the daemon's own lines and everything the
