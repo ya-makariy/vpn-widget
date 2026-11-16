@@ -5,6 +5,7 @@ import VPNWidgetCore
 /// removing them. Each change goes through the administrator prompt.
 struct TunnelsSettingsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
     @State private var editing: VPNProfile?
     @State private var adding: TunnelConfig.Kind?
 
@@ -35,6 +36,7 @@ struct TunnelsSettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                         }
+                        Button("Log") { TunnelLogOpener.open(profile.id, with: openWindow) }
                         Button("Edit…") { editing = profile }
                         Button("Remove…", role: .destructive) { model.removeTunnel(profile.id) }
                     }

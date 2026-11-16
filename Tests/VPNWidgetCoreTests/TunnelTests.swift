@@ -185,3 +185,60 @@ import Testing
         #expect(s.profiles[0].signInURL == nil)
     }
 }
+
+@Suite struct TunnelLogTests {
+    private func temporaryFile(_ text: String) throws -> String {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("tunnel-log-\(UUID().uuidString).log")
+        try Data(text.utf8).write(to: url)
+        return url.path
+    }
+
+    @Test func missingFile() {
+        #expect(TunnelLog.tail(path: "/nonexistent/vpn-widget/x.log") == nil)
+        #expect(TunnelLog.read(path: "/nonexistent/vpn-widget/x.log", from: 0) == nil)
+    }
+
+    @Test func wholeFileWhenSmall() throws {
+        let path = try temporaryFile("one\ntwo\n")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        #expect(TunnelLog.tail(path: path) == TunnelLog.Tail(text: "one\ntwo\n", fileSize: 8, truncated: false))
+    }
+
+    @Test func tailStartsAtAWholeLine() throws {
+        let path = try temporaryFile("first line\nsecond line\nthird\n")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let tail = try #require(TunnelLog.tail(path: path, maxBytes: 12))
+        #expect(tail.text == "third\n")
+        #expect(tail.truncated)
+        #expect(tail.fileSize == 29)
+        // One line longer than the window: nothing whole to show.
+        #expect(TunnelLog.tail(path: path, maxBytes: 3)?.text == "")
+    }
+
+    @Test func readsWhatWasAppended() throws {
+        let path = try temporaryFile("one\n")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let tail = try #require(TunnelLog.tail(path: path))
+        #expect(TunnelLog.read(path: path, from: tail.fileSize)?.text == "")
+        let handle = try #require(FileHandle(forWritingAtPath: path))
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("two\n".utf8))
+        try handle.close()
+        let more = try #require(TunnelLog.read(path: path, from: tail.fileSize))
+        #expect(more.text == "two\n")
+        #expect(more.offset == 8)
+        // A replaced, shorter file is read from its start.
+        try Data("new\n".utf8).write(to: URL(fileURLWithPath: path))
+        let again = try #require(TunnelLog.read(path: path, from: more.offset))
+        #expect(again.text == "new\n")
+        #expect(again.offset == 4)
+    }
+
+    @Test func lastLines() {
+        #expect(TunnelLog.lastLines("a\nb\nc\n", 2) == "b\nc")
+        #expect(TunnelLog.lastLines("a\nb\nc", 2) == "b\nc")
+        #expect(TunnelLog.lastLines("a\n", 5) == "a")
+        #expect(TunnelLog.lastLines("", 5) == "")
+        #expect(TunnelLog.lastLines("a\nb\n", 0) == "")
+    }
+}

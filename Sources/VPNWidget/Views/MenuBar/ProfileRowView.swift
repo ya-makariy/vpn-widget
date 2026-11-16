@@ -4,6 +4,7 @@ import VPNWidgetCore
 /// One VPN in the panel: name and state, the action, and the details while up.
 struct ProfileRowView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
     var row: ProfileRowState
     var namespace: Namespace.ID
 
@@ -95,8 +96,21 @@ struct ProfileRowView: View {
                 Button("Disconnect") { model.disconnect(row.id) }
                     .buttonStyle(.glass)
                     .disabled(busy)
+            } else if row.phase.canConnect {
+                Button("Connect") { model.connect(row.id) }
+                    .buttonStyle(.glassProminent)
+                    .disabled(busy)
+            }
+            // The log is wanted most when a tunnel is down, so own tunnels
+            // keep the menu in every state.
+            if row.phase.canDisconnect || row.isOwnTunnel {
                 Menu {
-                    Button("Reconnect") { model.reconnect(row.id) }
+                    if row.phase.canDisconnect {
+                        Button("Reconnect") { model.reconnect(row.id) }
+                    }
+                    if row.isOwnTunnel {
+                        Button("Show Log") { TunnelLogOpener.open(row.id, with: openWindow) }
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                 }
@@ -105,10 +119,6 @@ struct ProfileRowView: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .accessibilityLabel("More actions")
-            } else if row.phase.canConnect {
-                Button("Connect") { model.connect(row.id) }
-                    .buttonStyle(.glassProminent)
-                    .disabled(busy)
             }
         }
         .controlSize(.small)
