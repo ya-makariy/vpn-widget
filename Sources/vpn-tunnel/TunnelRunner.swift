@@ -22,6 +22,7 @@ final class TunnelRunner: @unchecked Sendable {
     private var fatal: String?
     private var untrustedCertificate: String?
     private var lastError: String?
+    private let logFile: LogFile
 
     init(name: String) throws {
         guard TunnelConfig.isValidName(name) else { throw ActionError("invalid tunnel name") }
@@ -31,12 +32,14 @@ final class TunnelRunner: @unchecked Sendable {
         guard let tunnel = profile.tunnel?.normalized else { throw ActionError("not a tunnel profile") }
         self.tunnel = tunnel
         profile.tunnel = tunnel
+        logFile = LogFile(name: name, level: tunnel.logLevel, keepDays: tunnel.logRetentionDays)
         state = TunnelState(phase: .starting, since: Date(), pid: getpid())
     }
 
     // MARK: Lifecycle
 
     func run() -> Int32 {
+        logFile.start()
         log("starting tunnel \(name) (\(tunnel.kind.rawValue)) to \(tunnel.host):\(tunnel.port)")
         installSignalHandlers()
         write { $0 = TunnelState(phase: .starting, since: Date(), pid: getpid()) }
@@ -55,7 +58,7 @@ final class TunnelRunner: @unchecked Sendable {
             if let fatal {
                 let pin = untrustedCertificate
                 write { $0.phase = .failed; $0.since = Date(); $0.message = fatal; $0.untrustedCertificate = pin; $0.connectedSince = nil; $0.interfaceName = nil; $0.signInURL = nil }
-                log("\(fatal); not retrying")
+                log("\(fatal); not retrying", .error)
                 return 1
             }
             if sawSignInTimeout {
@@ -67,7 +70,7 @@ final class TunnelRunner: @unchecked Sendable {
             signInPromptDue = true
             let wait = backoff.next(sessionLasted: lasted)
             let reason = lastError ?? "the tool exited with status \(status)"
-            log("down after \(Int(Date().timeIntervalSince(started))) s: \(reason); retrying in \(Int(wait)) s")
+            log("down after \(Int(Date().timeIntervalSince(started))) s: \(reason); retrying in \(Int(wait)) s", .error)
             write { $0.phase = .connecting; $0.since = Date(); $0.message = "\(reason); retrying in \(Int(wait)) s"; $0.connectedSince = nil; $0.interfaceName = nil; $0.signInURL = nil }
             sleepUnlessStopping(wait)
         }
@@ -164,7 +167,7 @@ final class TunnelRunner: @unchecked Sendable {
 
         let reader = LineReader(handle: output.fileHandleForReading)
         while let line = reader.next() {
-            log("  " + line)
+            log("  " + line, .ofToolLine(line))
             if let event = launch.parse(line) { handle(event) }
         }
         process.waitUntilExit()
@@ -263,7 +266,7 @@ final class TunnelRunner: @unchecked Sendable {
             write { $0.dnsServers = servers }
             log("split DNS: \(files.keys.sorted().joined(separator: ", ")) → \(servers.joined(separator: ", "))")
         } catch {
-            log("resolver files: \(error)")
+            log("resolver files: \(error)", .error)
         }
         if let interface = currentState.interfaceName {
             routeDNSServers(servers, via: interface)
@@ -349,14 +352,12 @@ final class TunnelRunner: @unchecked Sendable {
             try FileManager.default.createDirectory(atPath: TunnelFiles.stateDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755])
             try Admin.writeRoot(try TunnelState.encoder.encode(snapshot), to: TunnelFiles.statePath(name), mode: 0o644)
         } catch {
-            log("state file: \(error)")
+            log("state file: \(error)", .error)
         }
     }
 
-    private func log(_ text: String) {
-        let stamp = ISO8601DateFormatter().string(from: Date())
-        print("\(stamp) \(text)")
-        fflush(stdout)
+    private func log(_ text: String, _ level: TunnelConfig.LogLevel = .info) {
+        logFile.write(text, level: level)
     }
 }
 

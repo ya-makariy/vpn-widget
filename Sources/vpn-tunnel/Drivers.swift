@@ -38,7 +38,7 @@ enum Drivers {
         let config = "\(TunnelFiles.generatedDirectory)/\(tunnel.name).conf"
         try Admin.writeRoot(lines.joined(separator: "\n") + "\n", to: config, mode: 0o600)
         // Options go on the command line, where their spelling is documented.
-        var arguments = ["-c", config, "-v", "--set-dns=0", "--pppd-use-peerdns=\(splitDNS ? 0 : 1)", "--pppd-accept-remote=1"]
+        var arguments = ["-c", config] + tunnel.logLevel.toolArguments(.openfortivpn) + ["--set-dns=0", "--pppd-use-peerdns=\(splitDNS ? 0 : 1)", "--pppd-accept-remote=1"]
         if tunnel.saml { arguments.append("--saml-login") }
         return Launch(
             executable: "\(TunnelFiles.libexecDirectory)/openfortivpn",
@@ -63,6 +63,7 @@ enum Drivers {
             arguments.append("--passwd-on-stdin")
             stdin = Data((password + "\n").utf8)
         }
+        arguments += tunnel.logLevel.toolArguments(.openconnect)
         arguments += tunnel.extraArguments
         arguments.append(tunnel.port == 443 ? tunnel.host : "\(tunnel.host):\(tunnel.port)")
         return Launch(

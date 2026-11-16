@@ -195,6 +195,20 @@ struct TunnelEditorView: View {
                     Text("While the tunnel is up, the daemon writes /etc/resolver files for these domains and removes them when it goes down. With no domains, the gateway's DNS servers take over all lookups while the tunnel is up.")
                 }
                 Section {
+                    Picker("Level", selection: tunnel.logLevel) {
+                        ForEach(TunnelConfig.LogLevel.allCases, id: \.self) { level in
+                            Text(verbatim: level.displayName).tag(level)
+                        }
+                    }
+                    Stepper(value: tunnel.logRetentionDays, in: TunnelConfig.logRetentionRange) {
+                        Text("Keep archives for \(tunnel.wrappedValue.logRetentionDays) days")
+                    }
+                } header: {
+                    Text("Log")
+                } footer: {
+                    Text("The log is rotated every day at midnight: the day's file is compressed and kept for this many days. ERROR keeps failures only; DEBUG adds the tool's own debug output, TRACE its packet traces. Changes apply the next time the tunnel starts.")
+                }
+                Section {
                     TextField("Service check URL", text: Binding(get: { profile.checkURL?.absoluteString ?? "" }, set: { profile.checkURL = URL(string: $0) }), prompt: Text("https://service.behind.the.tunnel/"))
                     Toggle("Don't verify the certificate", isOn: $profile.insecureTLS)
                     Toggle("Connect when VPN Widget starts", isOn: $profile.autoConnect)
@@ -220,7 +234,7 @@ struct TunnelEditorView: View {
             }
             .padding()
         }
-        .frame(width: 560, height: 620)
+        .frame(width: 560, height: 680)
     }
 
     private func optional(_ binding: Binding<String?>) -> Binding<String> {
