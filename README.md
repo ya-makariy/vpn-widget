@@ -97,6 +97,12 @@ Configs live root-only in `/usr/local/etc/vpn-widget`, logs in
 `/var/log/vpn-widget/<name>.log`, state in `/var/run/vpn-widget`. Tunnels
 outlive the widget: quitting it leaves them up.
 
+To see why a tunnel does not come up, open its log: **Show Log** in the row's
+`…` menu in the panel, or **Log** next to the tunnel in Settings → Tunnels. The
+window shows the end of the file (the daemon's own lines and everything the
+tool printed) and keeps up with it while **Follow** is on. From the command
+line, `vpnw log <tunnel> -f` does the same.
+
 Known gap: the root-owned copies of openfortivpn and openconnect still load
 Homebrew's dylibs, which your user can write. Someone already running code as
 you could use that to become root. Static builds would close it.
@@ -178,6 +184,7 @@ swift run vpnw once --all        # one poll of every profile
 swift run vpnw watch 60          # print status changes as the system reports them
 swift run vpnw start <name>      # what the Connect button does
 swift run vpnw dns <name>        # DNS and routing facts about a profile
+swift run vpnw log <tunnel> -f   # the end of an own tunnel's log, following it
 swift run vpnw check <url>       # the reachability check
 ```
 

@@ -12,6 +12,7 @@ usage: vpnw <command>
   start <id|name>          start a profile (what the Connect button does)
   stop <id|name>           stop a profile
   dns <id|name>            the profile's DNS and routing facts
+  log <tunnel> [-n N] [-f] the end of an own tunnel's log (-n: lines, 50; -f: follow)
   check <url> [--insecure] run the reachability check against a URL
 """
 
@@ -31,6 +32,7 @@ struct Main {
             case "watch": await watch(seconds: args.first.flatMap(Int.init) ?? 60)
             case "start", "stop": try await act(command, target: args.joined(separator: " "))
             case "dns": try await dns(target: args.joined(separator: " "))
+            case "log": try await log(args)
             case "check": try await check(args)
             default:
                 print(usage)
@@ -155,6 +157,52 @@ struct Main {
         print("takesOverDNS:", await interfaces.takesOverDNS(s.id))
         print("installsDefaultRoute:", await interfaces.installsDefaultRoute(s.id))
         print("statistics:", await controller.statistics(of: s.id).map { $0.description } ?? "nil")
+    }
+
+    /// The tunnel is named as it is in Settings: by its tunnel name, its
+    /// profile id or the name it has in the panel.
+    static func log(_ args: [String]) async throws {
+        var lines = 50
+        var follow = false
+        var words: [String] = []
+        var rest = args[...]
+        while let arg = rest.popFirst() {
+            switch arg {
+            case "-f": follow = true
+            case "-n":
+                guard let n = rest.popFirst().flatMap({ Int($0) }), n > 0 else { throw ActionError("usage: vpnw log <tunnel> [-n lines] [-f]") }
+                lines = n
+            default: words.append(arg)
+            }
+        }
+        let target = words.joined(separator: " ")
+        guard !target.isEmpty else { throw ActionError("usage: vpnw log <tunnel> [-n lines] [-f]") }
+        let name: String
+        if TunnelControllerLaunchd.installedNames().contains(target) {
+            name = target
+        } else if let own = TunnelConfig.name(fromProfileID: try await resolve(target).id) {
+            name = own
+        } else {
+            throw ActionError("\(target) is not one of the widget's own tunnels; its client keeps the log")
+        }
+        let path = TunnelFiles.logPath(name)
+        // Enough of the end to hold the lines asked for, without reading a huge file whole.
+        guard let tail = TunnelLog.tail(path: path, maxBytes: max(TunnelLog.defaultTailBytes, lines * 400)) else {
+            throw ActionError("no log at \(path): the tunnel has not been started yet")
+        }
+        let text = TunnelLog.lastLines(tail.text, lines)
+        if !text.isEmpty { print(text) }
+        guard follow else { return }
+        var offset = tail.fileSize
+        while true {
+            try await Task.sleep(for: .milliseconds(500))
+            guard let more = TunnelLog.read(path: path, from: offset) else { continue }
+            offset = more.offset
+            if !more.text.isEmpty {
+                print(more.text, terminator: "")
+                fflush(stdout)
+            }
+        }
     }
 
     static func check(_ args: [String]) async throws {
