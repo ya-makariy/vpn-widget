@@ -26,7 +26,7 @@ public struct SystemProviderHooks: ProviderHooks {
             }
             try await controller.start(profile.id)
             return .started
-        case .openfortivpn, .openconnect:
+        case .openfortivpn, .openconnect, .amneziawgGo:
             // Own tunnels: the daemon does the work, and reports through its state file.
             try await controller.start(profile.id)
             return .started

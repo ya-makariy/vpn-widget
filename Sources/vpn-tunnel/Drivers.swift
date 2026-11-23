@@ -9,6 +9,8 @@ enum Drivers {
         var environment: [String: String] = [:]
         var stdin: Data?
         var parse: (String) -> ToolEvent?
+        /// amneziawg: the config the runner applies once the tool has its interface.
+        var wireGuard: WireGuardConf?
     }
 
     static func launch(for profile: VPNProfile) throws -> Launch {
@@ -16,6 +18,7 @@ enum Drivers {
         switch tunnel.kind {
         case .openfortivpn: return try openfortivpn(profile, tunnel)
         case .openconnect: return try openconnect(profile, tunnel)
+        case .amneziawg: return try amneziawg(profile, tunnel)
         }
     }
 
@@ -76,6 +79,31 @@ enum Drivers {
             ],
             stdin: stdin,
             parse: OpenConnectOutput.parse
+        )
+    }
+
+    /// amneziawg-go runs in the foreground on a utun the system numbers, and
+    /// writes its name where `WG_TUN_NAME_FILE` says; the rest of what
+    /// wg-quick would do is WireGuardLink's. The `.conf`, with its keys, is the
+    /// tunnel's secret, read here and never passed on a command line. Plain
+    /// WireGuard configs take the same path: without obfuscation parameters
+    /// amneziawg-go is expected to speak the plain protocol.
+    static func amneziawg(_ profile: VPNProfile, _ tunnel: TunnelConfig) throws -> Launch {
+        for tool in TunnelFiles.wireGuardTools where !FileManager.default.isExecutableFile(atPath: "\(TunnelFiles.libexecDirectory)/\(tool)") {
+            throw ActionError("\(tool) is not in \(TunnelFiles.libexecDirectory): install it, then Set Up Again in Settings → Tunnels")
+        }
+        let conf = try Admin.wireGuardConf(name: tunnel.name, stagedSecret: nil)
+        let nameFile = TunnelFiles.interfaceNamePath(tunnel.name)
+        try? FileManager.default.removeItem(atPath: nameFile)
+        var environment = ["WG_TUN_NAME_FILE": nameFile]
+        // It logs errors only unless told otherwise.
+        if tunnel.logLevel >= .debug { environment["LOG_LEVEL"] = "verbose" }
+        return Launch(
+            executable: "\(TunnelFiles.libexecDirectory)/amneziawg-go",
+            arguments: ["-f", "utun"],
+            environment: environment,
+            parse: AmneziaWGOutput.parse,
+            wireGuard: conf
         )
     }
 

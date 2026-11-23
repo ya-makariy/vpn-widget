@@ -32,6 +32,7 @@ enum StateStyle {
         case .wireguard: "bolt.horizontal"
         case .openfortivpn: "terminal"
         case .openconnect: "terminal"
+        case .amneziawgGo: "terminal"
         case .other: "point.3.connected.trianglepath.dotted"
         }
     }

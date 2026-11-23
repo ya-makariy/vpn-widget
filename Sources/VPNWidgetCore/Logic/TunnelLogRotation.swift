@@ -74,6 +74,8 @@ extension TunnelConfig.LogLevel {
         case (.openconnect, .debug): ["-v"]
         case (.openconnect, .trace): ["-v", "-v"]
         case (.openconnect, _): []
+        // amneziawg-go takes its level from the environment; see Drivers.
+        case (.amneziawg, _): []
         }
     }
 }

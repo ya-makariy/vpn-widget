@@ -31,10 +31,13 @@ public struct TunnelState: Codable, Equatable, Sendable {
     public var message: String?
     /// What to trust to get past a certificate the system does not know.
     public var untrustedCertificate: String?
+    /// The tunnel was asked to carry the default route (amneziawg:
+    /// `AllowedIPs = 0.0.0.0/0`). Nil in files from before this was written.
+    public var defaultRoute: Bool?
     public var pid: Int32
     public var updated: Date
 
-    public init(phase: Phase, since: Date, connectedSince: Date? = nil, signInURL: String? = nil, signInAttempt: Int = 0, interfaceName: String? = nil, address: String? = nil, dnsServers: [String] = [], message: String? = nil, untrustedCertificate: String? = nil, pid: Int32 = 0, updated: Date = Date()) {
+    public init(phase: Phase, since: Date, connectedSince: Date? = nil, signInURL: String? = nil, signInAttempt: Int = 0, interfaceName: String? = nil, address: String? = nil, dnsServers: [String] = [], message: String? = nil, untrustedCertificate: String? = nil, defaultRoute: Bool? = nil, pid: Int32 = 0, updated: Date = Date()) {
         self.phase = phase
         self.since = since
         self.connectedSince = connectedSince
@@ -45,6 +48,7 @@ public struct TunnelState: Codable, Equatable, Sendable {
         self.dnsServers = dnsServers
         self.message = message
         self.untrustedCertificate = untrustedCertificate
+        self.defaultRoute = defaultRoute
         self.pid = pid
         self.updated = updated
     }

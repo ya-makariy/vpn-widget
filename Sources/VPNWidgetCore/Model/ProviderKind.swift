@@ -11,6 +11,8 @@ public enum ProviderKind: String, Codable, CaseIterable, Hashable, Sendable {
     case openfortivpn
     /// A tunnel the widget runs itself with openconnect (AnyConnect protocol).
     case openconnect
+    /// A tunnel the widget runs itself with amneziawg-go (AmneziaWG, WireGuard).
+    case amneziawgGo
     case other
 
     /// Classifies a provider by its `NEProviderBundleIdentifier`. Prefixes are
@@ -27,6 +29,7 @@ public enum ProviderKind: String, Codable, CaseIterable, Hashable, Sendable {
         case let id where id.hasPrefix("com.wireguard.macos"): self = .wireguard
         case TunnelConfig.Kind.openfortivpn.providerBundleID: self = .openfortivpn
         case TunnelConfig.Kind.openconnect.providerBundleID: self = .openconnect
+        case TunnelConfig.Kind.amneziawg.providerBundleID: self = .amneziawgGo
         default: self = .other
         }
     }
@@ -39,6 +42,7 @@ public enum ProviderKind: String, Codable, CaseIterable, Hashable, Sendable {
         case .wireguard: "WireGuard"
         case .openfortivpn: "openfortivpn"
         case .openconnect: "openconnect"
+        case .amneziawgGo: "amneziawg-go"
         case .other: "Other"
         }
     }
@@ -46,7 +50,7 @@ public enum ProviderKind: String, Codable, CaseIterable, Hashable, Sendable {
     /// Tunnels the widget runs itself, as opposed to profiles of other apps.
     public var isOwnTunnel: Bool {
         switch self {
-        case .openfortivpn, .openconnect: true
+        case .openfortivpn, .openconnect, .amneziawgGo: true
         default: false
         }
     }
@@ -59,7 +63,7 @@ public enum ProviderKind: String, Codable, CaseIterable, Hashable, Sendable {
         case .anyconnect: ["com.cisco.anyconnect", "com.cisco.secureclient.gui", "com.cisco.anyconnect.gui"]
         case .amneziawg: ["org.amnezia.awg"]
         case .wireguard: ["com.wireguard.macos"]
-        case .openfortivpn, .openconnect, .other: []
+        case .openfortivpn, .openconnect, .amneziawgGo, .other: []
         }
     }
 
@@ -67,7 +71,7 @@ public enum ProviderKind: String, Codable, CaseIterable, Hashable, Sendable {
     public var signsInInteractively: Bool {
         switch self {
         case .forticlient, .anyconnect, .openfortivpn: true
-        case .amneziawg, .wireguard, .openconnect, .other: false
+        case .amneziawg, .wireguard, .openconnect, .amneziawgGo, .other: false
         }
     }
 }

@@ -22,6 +22,8 @@ final class TunnelRunner: @unchecked Sendable {
     private var fatal: String?
     private var untrustedCertificate: String?
     private var lastError: String?
+    /// Events come from the tool's output and, for amneziawg, from the link's watcher.
+    private let eventLock = NSLock()
     private let logFile: LogFile
 
     init(name: String) throws {
@@ -120,6 +122,8 @@ final class TunnelRunner: @unchecked Sendable {
     /// Waits until the gateway's port answers, so that a sign-in page never
     /// opens just to show an error.
     private func waitForGateway() -> Bool {
+        // amneziawg: the peer is a UDP port, which says nothing until the handshake.
+        if tunnel.kind == .amneziawg { return !isStopping }
         var announced = false
         while !isStopping {
             if TCPProbe.canConnect(host: tunnel.host, port: tunnel.port, timeout: 3) { return true }
@@ -153,7 +157,8 @@ final class TunnelRunner: @unchecked Sendable {
         let input = Pipe()
         process.standardInput = input
         lock.withLock { child = process }
-        write { $0.phase = .connecting; $0.since = Date(); $0.message = nil; $0.signInURL = nil }
+        let defaultRoute = launch.wireGuard.map { $0.takesDefaultRoute && !$0.routesOff }
+        write { $0.phase = .connecting; $0.since = Date(); $0.message = nil; $0.signInURL = nil; $0.defaultRoute = defaultRoute }
         do {
             try process.run()
         } catch {
@@ -165,12 +170,21 @@ final class TunnelRunner: @unchecked Sendable {
         try? input.fileHandleForWriting.close()
         log("started \(launch.executable) (pid \(process.processIdentifier))")
 
+        let link = launch.wireGuard.map { conf in
+            WireGuardLink(name: name, conf: conf, child: process, log: { [weak self] in self?.log($0, $1) }, emit: { [weak self] event in
+                guard let self else { return }
+                self.eventLock.withLock { self.handle(event) }
+            })
+        }
+        link?.start()
         let reader = LineReader(handle: output.fileHandleForReading)
-        while let line = reader.next() {
+        while let raw = reader.next() {
+            let line = launch.wireGuard?.scrub(raw) ?? raw
             log("  " + line, .ofToolLine(line))
-            if let event = launch.parse(line) { handle(event) }
+            if let event = launch.parse(line) { eventLock.withLock { handle(event) } }
         }
         process.waitUntilExit()
+        link?.finish()
         lock.withLock { child = nil }
         return process.terminationStatus
     }
@@ -221,6 +235,14 @@ final class TunnelRunner: @unchecked Sendable {
             lastError = fatal
         case .error(let why):
             lastError = why
+        case .waiting(let what):
+            // The process and its interface stay; a handshake brings the link back.
+            write {
+                if $0.phase == .connected { $0.since = Date() }
+                $0.phase = .connecting
+                $0.connectedSince = nil
+                $0.message = what
+            }
         }
     }
 
