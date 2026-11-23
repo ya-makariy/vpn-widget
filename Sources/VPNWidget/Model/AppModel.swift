@@ -28,7 +28,7 @@ final class AppModel {
     private let notifier: GatedNotifier
     private var pending: [String: PendingAction] = [:]
     /// The last sign-in attempt whose page was opened, per profile.
-    private var openedSignIn: [String: Int] = [:]
+    private var signInPrompts = SignInPrompts()
     private var tasks: [Task<Void, Never>] = []
     private var ticker: Task<Void, Never>?
 
@@ -122,11 +122,10 @@ final class AppModel {
     private func openPendingSignIns() {
         for row in rows {
             guard let url = row.signInURL, row.phase == .waitingForSignIn else {
-                if row.phase.isUp || row.phase == .disconnected { openedSignIn[row.id] = nil }
+                if row.phase.isUp || row.phase == .disconnected { signInPrompts.forget(key: row.id) }
                 continue
             }
-            if openedSignIn[row.id] != row.signInAttempt {
-                openedSignIn[row.id] = row.signInAttempt
+            if signInPrompts.shouldOpen(key: row.id, run: row.signInRun, attempt: row.signInAttempt) {
                 NSWorkspace.shared.open(url)
             }
         }
