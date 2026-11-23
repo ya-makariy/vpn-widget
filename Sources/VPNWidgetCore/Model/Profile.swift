@@ -235,19 +235,33 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
         id.hasPrefix(profileIDPrefix) ? String(id.dropFirst(profileIDPrefix.count)) : nil
     }
 
-    /// Whether a name can be used in file names and a launchd label.
+    private static let asciiNameCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789")
+
+    /// Whether a name can be given to a new tunnel: ASCII `a-z`, `0-9` and
+    /// dashes only, so that it can be typed in a terminal and a look-alike
+    /// letter from another script cannot hide in it.
     public static func isValidName(_ name: String) -> Bool {
+        let allowed = asciiNameCharacters.union(CharacterSet(charactersIn: "-"))
+        return !name.isEmpty && name.count <= 40 && name.unicodeScalars.allSatisfy(allowed.contains)
+            && !name.hasPrefix("-") && !name.hasSuffix("-")
+    }
+
+    /// Whether a name can address a tunnel that is installed already. Names
+    /// used to accept any Unicode lowercase letter or digit; such a tunnel
+    /// must still start, stop and, above all, be removed. Still safe in file
+    /// names and a launchd label.
+    public static func isInstalledName(_ name: String) -> Bool {
         let allowed = CharacterSet.lowercaseLetters.union(.decimalDigits).union(CharacterSet(charactersIn: "-"))
         return !name.isEmpty && name.count <= 40 && name.unicodeScalars.allSatisfy(allowed.contains)
             && !name.hasPrefix("-") && !name.hasSuffix("-")
     }
 
-    /// A name from a display name: lowercase, dashes for the rest.
+    /// A name from a display name: lowercase ASCII, dashes for the rest.
     public static func suggestName(from title: String) -> String {
         var out = ""
         var lastDash = true
         for ch in title.lowercased().unicodeScalars {
-            if CharacterSet.lowercaseLetters.union(.decimalDigits).contains(ch) {
+            if asciiNameCharacters.contains(ch) {
                 out.unicodeScalars.append(ch)
                 lastDash = false
             } else if !lastDash {
@@ -255,8 +269,9 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
                 lastDash = true
             }
         }
+        out = String(out.prefix(40))
         while out.hasSuffix("-") { out.removeLast() }
-        return String(out.prefix(40))
+        return out
     }
 }
 

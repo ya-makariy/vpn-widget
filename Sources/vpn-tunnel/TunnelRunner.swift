@@ -25,7 +25,7 @@ final class TunnelRunner: @unchecked Sendable {
     private let logFile: LogFile
 
     init(name: String) throws {
-        guard TunnelConfig.isValidName(name) else { throw ActionError("invalid tunnel name") }
+        guard TunnelConfig.isInstalledName(name) else { throw ActionError("invalid tunnel name") }
         self.name = name
         let data = try Data(contentsOf: URL(fileURLWithPath: TunnelFiles.configPath(name)))
         profile = try TunnelState.decoder.decode(VPNProfile.self, from: data)

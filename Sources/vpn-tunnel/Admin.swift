@@ -59,7 +59,11 @@ enum Admin {
     }
 
     static func install(name: String, stagedConfig: String, stagedSecret: String?) throws {
-        guard TunnelConfig.isValidName(name) else { throw ActionError("invalid tunnel name") }
+        // A new tunnel needs an ASCII name; one installed under an older,
+        // looser rule can still be updated.
+        guard TunnelConfig.isValidName(name) || (TunnelConfig.isInstalledName(name) && FileManager.default.fileExists(atPath: TunnelFiles.configPath(name))) else {
+            throw ActionError("invalid tunnel name")
+        }
         let data = try Data(contentsOf: URL(fileURLWithPath: stagedConfig))
         var profile = try TunnelState.decoder.decode(VPNProfile.self, from: data)
         guard var tunnel = profile.tunnel?.normalized, tunnel.name == name else { throw ActionError("the profile is not for tunnel \(name)") }
@@ -110,7 +114,7 @@ enum Admin {
     }
 
     static func remove(name: String) throws {
-        guard TunnelConfig.isValidName(name) else { throw ActionError("invalid tunnel name") }
+        guard TunnelConfig.isInstalledName(name) else { throw ActionError("invalid tunnel name") }
         let fm = FileManager.default
         _ = launchctl(["kill", "TERM", "system/\(TunnelFiles.label(name))"])
         _ = launchctl(["bootout", "system/\(TunnelFiles.label(name))"])
