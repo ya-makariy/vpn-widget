@@ -206,11 +206,12 @@ import Testing
         let p = VPNProfile(tunnel: tunnel, displayName: "Corp")
         let rig = Rig(profiles: [p], statuses: [p.id: .connecting])
         let url = URL(string: "https://gw.example:8443/remote/saml/start")!
-        await rig.controller.setExtended(p.id, ExtendedStatus(lastChange: rig.now.now, signInURL: url, signInAttempt: 1, message: "Sign in in the browser"))
+        await rig.controller.setExtended(p.id, ExtendedStatus(lastChange: rig.now.now, signInURL: url, signInAttempt: 1, signInRun: 42, message: "Sign in in the browser"))
         var s = await rig.engine.poll()
         #expect(s.profiles[0].state == .connecting)
         #expect(s.profiles[0].signInURL == url)
         #expect(s.profiles[0].signInAttempt == 1)
+        #expect(s.profiles[0].signInRun == 42)
         #expect(s.profiles[0].clientHint == "Sign in in the browser")
 
         await rig.controller.set(p.id, .failed)
@@ -221,6 +222,40 @@ import Testing
         #expect(s.profiles[0].untrustedCertificate == "pin-sha256:abc=")
         #expect(s.level == .problem)
         #expect(s.profiles[0].signInURL == nil)
+    }
+}
+
+@Suite struct SignInPromptsTests {
+    @Test func opensOncePerAttempt() {
+        var prompts = SignInPrompts()
+        #expect(prompts.shouldOpen(key: "a", run: 100, attempt: 1) == true)
+        #expect(prompts.shouldOpen(key: "a", run: 100, attempt: 1) == false)
+        #expect(prompts.shouldOpen(key: "a", run: 100, attempt: 1) == false)
+    }
+
+    @Test func opensAgainForANewAttempt() {
+        var prompts = SignInPrompts()
+        #expect(prompts.shouldOpen(key: "a", run: 100, attempt: 1) == true)
+        #expect(prompts.shouldOpen(key: "a", run: 100, attempt: 2) == true)
+        #expect(prompts.shouldOpen(key: "a", run: 100, attempt: 2) == false)
+    }
+
+    /// A daemon started again after a failure counts from one again, and the
+    /// app may not have seen the failure between two polls.
+    @Test func opensAgainAfterARestart() {
+        var prompts = SignInPrompts()
+        #expect(prompts.shouldOpen(key: "a", run: 100, attempt: 1) == true)
+        #expect(prompts.shouldOpen(key: "a", run: 101, attempt: 1) == true)
+        #expect(prompts.shouldOpen(key: "a", run: 101, attempt: 1) == false)
+    }
+
+    @Test func forgetsAndKeepsProfilesApart() {
+        var prompts = SignInPrompts()
+        #expect(prompts.shouldOpen(key: "a", run: 100, attempt: 1) == true)
+        #expect(prompts.shouldOpen(key: "b", run: 100, attempt: 1) == true)
+        prompts.forget(key: "a")
+        #expect(prompts.shouldOpen(key: "a", run: 100, attempt: 1) == true)
+        #expect(prompts.shouldOpen(key: "b", run: 100, attempt: 1) == false)
     }
 }
 

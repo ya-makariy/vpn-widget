@@ -91,13 +91,13 @@ struct ProfileEditorView: View {
     }
 
     private func commitURL() {
-        let trimmed = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
+        switch CheckURL.parse(urlText) {
+        case .none:
             if profile.checkURL != nil { profile.checkURL = nil }
-            return
-        }
-        if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https", url.host != nil {
+        case .url(let url):
             if profile.checkURL != url { profile.checkURL = url }
+        case .invalid:
+            break
         }
     }
 }

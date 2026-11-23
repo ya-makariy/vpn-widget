@@ -11,10 +11,12 @@ public struct ExtendedStatus: Equatable, Sendable {
     /// number, and why the daemon failed.
     public var signInURL: URL?
     public var signInAttempt: Int
+    /// Own tunnels: the daemon's pid, as attempts are numbered within a run.
+    public var signInRun: Int32
     public var message: String?
     public var untrustedCertificate: String?
 
-    public init(lastChange: Date? = nil, dnsServers: [String] = [], dnsSearchDomains: [String] = [], isPrimaryInterface: Bool = false, interfaceName: String? = nil, signInURL: URL? = nil, signInAttempt: Int = 0, message: String? = nil, untrustedCertificate: String? = nil) {
+    public init(lastChange: Date? = nil, dnsServers: [String] = [], dnsSearchDomains: [String] = [], isPrimaryInterface: Bool = false, interfaceName: String? = nil, signInURL: URL? = nil, signInAttempt: Int = 0, signInRun: Int32 = 0, message: String? = nil, untrustedCertificate: String? = nil) {
         self.lastChange = lastChange
         self.dnsServers = dnsServers
         self.dnsSearchDomains = dnsSearchDomains
@@ -22,6 +24,7 @@ public struct ExtendedStatus: Equatable, Sendable {
         self.interfaceName = interfaceName
         self.signInURL = signInURL
         self.signInAttempt = signInAttempt
+        self.signInRun = signInRun
         self.message = message
         self.untrustedCertificate = untrustedCertificate
     }

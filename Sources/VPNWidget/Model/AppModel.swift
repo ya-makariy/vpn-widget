@@ -28,7 +28,7 @@ final class AppModel {
     private let notifier: GatedNotifier
     private var pending: [String: PendingAction] = [:]
     /// The last sign-in attempt whose page was opened, per profile.
-    private var openedSignIn: [String: Int] = [:]
+    private var signInPrompts = SignInPrompts()
     private var tasks: [Task<Void, Never>] = []
     private var ticker: Task<Void, Never>?
 
@@ -52,6 +52,13 @@ final class AppModel {
         self.settings = settings
         self.isFake = fake
         var loaded = (try? store.load()) ?? StoredConfig()
+        // An own tunnel that was hidden and shown by an earlier version lost
+        // its config in the settings; the installed copy still has it.
+        let repaired = TunnelAdoption.repaired(loaded.profiles, installed: TunnelControllerLaunchd.installedProfile)
+        if repaired != loaded.profiles {
+            loaded.profiles = repaired
+            try? store.save(loaded)
+        }
         let gated = GatedNotifier(fake ? LogNotifier() : NotifierUN())
         gated.setEnabled(settings.notificationsEnabled)
         notifier = gated
@@ -122,11 +129,10 @@ final class AppModel {
     private func openPendingSignIns() {
         for row in rows {
             guard let url = row.signInURL, row.phase == .waitingForSignIn else {
-                if row.phase.isUp || row.phase == .disconnected { openedSignIn[row.id] = nil }
+                if row.phase.isUp || row.phase == .disconnected { signInPrompts.forget(key: row.id) }
                 continue
             }
-            if openedSignIn[row.id] != row.signInAttempt {
-                openedSignIn[row.id] = row.signInAttempt
+            if signInPrompts.shouldOpen(key: row.id, run: row.signInRun, attempt: row.signInAttempt) {
                 NSWorkspace.shared.open(url)
             }
         }
@@ -186,7 +192,12 @@ final class AppModel {
     func setShown(_ service: DiscoveredService, _ shown: Bool) {
         var profiles = config.profiles
         if shown, !profiles.contains(where: { $0.id == service.id }) {
-            profiles.append(VPNProfile(adopting: service))
+            // An own tunnel comes back with its config, as installed.
+            guard let profile = TunnelAdoption.profile(adopting: service, installed: TunnelControllerLaunchd.installedProfile) else {
+                settingsError = "Could not read the installed settings of tunnel \(service.name). Add it again in Tunnels under the same name to show it."
+                return
+            }
+            profiles.append(profile)
         } else if !shown {
             profiles.removeAll { $0.id == service.id }
         }

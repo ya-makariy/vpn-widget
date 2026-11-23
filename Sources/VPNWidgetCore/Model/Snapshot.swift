@@ -31,6 +31,8 @@ public struct ProfileState: Equatable, Identifiable, Sendable {
     /// number changes when the user should be shown the page again.
     public var signInURL: URL?
     public var signInAttempt: Int
+    /// The daemon run the attempt belongs to: every run numbers its own.
+    public var signInRun: Int32
     /// Own tunnels: the certificate pin or digest to trust, when that is what
     /// stands in the way.
     public var untrustedCertificate: String?
@@ -53,6 +55,7 @@ public struct ProfileState: Equatable, Identifiable, Sendable {
         failure: String? = nil,
         signInURL: URL? = nil,
         signInAttempt: Int = 0,
+        signInRun: Int32 = 0,
         untrustedCertificate: String? = nil
     ) {
         self.profile = profile
@@ -72,6 +75,7 @@ public struct ProfileState: Equatable, Identifiable, Sendable {
         self.failure = failure
         self.signInURL = signInURL
         self.signInAttempt = signInAttempt
+        self.signInRun = signInRun
         self.untrustedCertificate = untrustedCertificate
     }
 

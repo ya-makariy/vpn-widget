@@ -75,6 +75,7 @@ struct ProfileRowState: Identifiable, Equatable, Sendable {
     /// Own tunnels: the SAML page while a sign-in is pending.
     var signInURL: URL?
     var signInAttempt: Int
+    var signInRun: Int32
     var isOwnTunnel: Bool
     var untrustedCertificate: String?
 
@@ -102,6 +103,7 @@ struct ProfileRowState: Identifiable, Equatable, Sendable {
         clientHint = p.clientHint
         signInURL = p.signInURL
         signInAttempt = p.signInAttempt
+        signInRun = p.signInRun
         isOwnTunnel = p.profile.isOwnTunnel
         untrustedCertificate = p.untrustedCertificate
         switch p.state {
