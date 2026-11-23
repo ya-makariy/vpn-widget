@@ -196,3 +196,60 @@ import Testing
         #expect(unknown.dns == "")
     }
 }
+
+@Suite struct CheckURLTests {
+    func url(_ text: String) -> String? { CheckURL.parse(text).url?.absoluteString }
+
+    @Test func emptyTextMeansNoCheck() {
+        #expect(CheckURL.parse("") == .none)
+        #expect(CheckURL.parse("  \n") == .none)
+        #expect(CheckURL.Parsed.none.isValid)
+        #expect(CheckURL.Parsed.none.url == nil)
+    }
+
+    @Test func httpAndHTTPSAreKeptAsTyped() {
+        #expect(url("https://service.example.com/") == "https://service.example.com/")
+        #expect(url("http://service.example.com:8080/health?full=1") == "http://service.example.com:8080/health?full=1")
+        #expect(url("  https://service.example.com/login \n") == "https://service.example.com/login")
+        #expect(url("HTTPS://service.example.com") == "HTTPS://service.example.com")
+        #expect(url("https://user:secret@service.example.com/") == "https://user:secret@service.example.com/")
+        #expect(url("http://192.0.2.10/") == "http://192.0.2.10/")
+    }
+
+    @Test func missingSchemeBecomesHTTPS() {
+        #expect(url("service.example.com") == "https://service.example.com")
+        #expect(url("service.example.com/login") == "https://service.example.com/login")
+        #expect(url("host:8443/path") == "https://host:8443/path")
+        #expect(url("localhost:8080") == "https://localhost:8080")
+        #expect(url("192.0.2.10:8443") == "https://192.0.2.10:8443")
+        #expect(url("[2001:db8::1]:8443/") == "https://[2001:db8::1]:8443/")
+        #expect(url("service.example.com/go?to=https://other.example.com/") == "https://service.example.com/go?to=https://other.example.com/")
+    }
+
+    @Test func parsedURLPassesTheCheckersOwnTest() throws {
+        let parsed = try #require(CheckURL.parse("host:8443/path").url)
+        #expect(parsed.scheme == "https")
+        #expect(parsed.host == "host")
+        #expect(parsed.port == 8443)
+        #expect(parsed.path == "/path")
+    }
+
+    @Test func otherSchemesAreInvalid() {
+        for text in ["ftp://service.example.com", "file:///etc/hosts", "ssh://service.example.com", "mailto:user@example.com", "http:service.example.com"] {
+            #expect(CheckURL.parse(text) == .invalid, "\(text)")
+        }
+    }
+
+    @Test func urlWithoutHostIsInvalid() {
+        for text in ["https://", "http://", "https:///path", "https://:8443", "://service.example.com", "//service.example.com", "/path", ":8443"] {
+            #expect(CheckURL.parse(text) == .invalid, "\(text)")
+        }
+    }
+
+    @Test func textWithSpacesIsInvalid() {
+        for text in ["service example.com", "https://service.example.com/a b", "https:// service.example.com", "service.example.com\tlogin"] {
+            #expect(CheckURL.parse(text) == .invalid, "\(text)")
+        }
+        #expect(!CheckURL.Parsed.invalid.isValid)
+    }
+}
