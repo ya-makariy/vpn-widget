@@ -205,6 +205,7 @@ public actor PollEngine {
                 if state.state == .connecting, let url = extended.signInURL {
                     state.signInURL = url
                     state.signInAttempt = extended.signInAttempt
+                    state.signInRun = extended.signInRun
                     state.clientHint = extended.message ?? "Sign in in the browser"
                     state.transitionSince = state.transitionSince ?? extended.lastChange
                 } else if state.state == .connecting, let message = extended.message {
