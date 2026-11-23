@@ -19,12 +19,40 @@ public enum TunnelFiles {
     /// start never runs a file the user can edit.
     public static let tools = ["openfortivpn", "openconnect", "vpnc-script"]
 
+    /// AmneziaWG's tools, copied the same way. Homebrew has no formulae for
+    /// them, so they are also looked for where their `make install` puts them.
+    public static let wireGuardTools = ["amneziawg-go", "awg"]
+
+    public static func wireGuardToolSources(_ tool: String, homebrewPrefix: String) -> [String] {
+        var seen: [String] = []
+        for directory in ["\(homebrewPrefix)/bin", "/usr/local/bin"] where !seen.contains(directory) { seen.append(directory) }
+        return seen.map { "\($0)/\(tool)" }
+    }
+
+    public enum WireGuardToolStatus: Equatable, Sendable {
+        /// Root-owned copies are in place.
+        case ready
+        /// Found on this Mac but not copied yet: setup has to run again.
+        case needsSetup([String])
+        /// Not found anywhere they are looked for.
+        case missing([String])
+    }
+
+    public static func wireGuardToolStatus(homebrewPrefix: String, isExecutable: (String) -> Bool) -> WireGuardToolStatus {
+        let absent = wireGuardTools.filter { !isExecutable("\(libexecDirectory)/\($0)") }
+        guard !absent.isEmpty else { return .ready }
+        let missing = absent.filter { tool in !wireGuardToolSources(tool, homebrewPrefix: homebrewPrefix).contains(where: isExecutable) }
+        return missing.isEmpty ? .needsSetup(absent) : .missing(missing)
+    }
+
     public static func label(_ name: String) -> String { labelPrefix + name }
     public static func plistPath(_ name: String) -> String { "\(launchDaemonsDirectory)/\(label(name)).plist" }
     public static func configPath(_ name: String) -> String { "\(configDirectory)/\(name).json" }
     public static func secretPath(_ name: String) -> String { "\(secretsDirectory)/\(name)" }
     public static func statePath(_ name: String) -> String { "\(stateDirectory)/\(name).json" }
     public static func logPath(_ name: String) -> String { "\(logDirectory)/\(name).log" }
+    /// Where amneziawg-go writes the name of the utun it was given.
+    public static func interfaceNamePath(_ name: String) -> String { "\(stateDirectory)/\(name).utun" }
     /// A world-readable copy of the profile without secrets, for the widget's
     /// discovery; the config itself is root-only.
     public static func publicProfilePath(_ name: String) -> String { "\(stateDirectory)/\(name).profile.json" }

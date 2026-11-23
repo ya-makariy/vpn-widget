@@ -42,6 +42,19 @@ enum Admin {
             try fm.setAttributes([.posixPermissions: 0o755, .ownerAccountID: 0, .groupOwnerAccountID: 0], ofItemAtPath: target)
             log("installed \(target)")
         }
+        // AmneziaWG's tools are optional and not Homebrew's: taken from where they were built to.
+        for tool in TunnelFiles.wireGuardTools {
+            let candidates = TunnelFiles.wireGuardToolSources(tool, homebrewPrefix: homebrewPrefix)
+            guard let source = candidates.first(where: { fm.isExecutableFile(atPath: $0) }) else {
+                log("skipping \(tool): not found in \(candidates.joined(separator: " or ")) (needed for AmneziaWG tunnels only; see the README)")
+                continue
+            }
+            let target = "\(TunnelFiles.libexecDirectory)/\(tool)"
+            try? fm.removeItem(atPath: target)
+            try fm.copyItem(atPath: URL(fileURLWithPath: source).resolvingSymlinksInPath().path, toPath: target)
+            try fm.setAttributes([.posixPermissions: 0o755, .ownerAccountID: 0, .groupOwnerAccountID: 0], ofItemAtPath: target)
+            log("installed \(target)")
+        }
         try writeRoot(Drivers.vpncWrapperScript, to: "\(TunnelFiles.libexecDirectory)/vpnc-wrapper", mode: 0o755)
         // The sudoers rule, checked by visudo before it is put in place.
         let rule = TunnelFiles.sudoersRule(user: user)
@@ -64,6 +77,9 @@ enum Admin {
         var profile = try TunnelState.decoder.decode(VPNProfile.self, from: data)
         guard var tunnel = profile.tunnel?.normalized, tunnel.name == name else { throw ActionError("the profile is not for tunnel \(name)") }
         let fm = FileManager.default
+        if tunnel.kind == .amneziawg {
+            tunnel.apply(try wireGuardConf(name: name, stagedSecret: stagedSecret))
+        }
         if let stagedSecret {
             let secret = try Data(contentsOf: URL(fileURLWithPath: stagedSecret))
             try writeRoot(secret, to: TunnelFiles.secretPath(name), mode: 0o600)
@@ -114,7 +130,7 @@ enum Admin {
         let fm = FileManager.default
         _ = launchctl(["kill", "TERM", "system/\(TunnelFiles.label(name))"])
         _ = launchctl(["bootout", "system/\(TunnelFiles.label(name))"])
-        for path in [TunnelFiles.plistPath(name), TunnelFiles.configPath(name), TunnelFiles.secretPath(name), TunnelFiles.statePath(name), TunnelFiles.publicProfilePath(name), "\(TunnelFiles.generatedDirectory)/\(name).conf"] {
+        for path in [TunnelFiles.plistPath(name), TunnelFiles.configPath(name), TunnelFiles.secretPath(name), TunnelFiles.statePath(name), TunnelFiles.publicProfilePath(name), "\(TunnelFiles.generatedDirectory)/\(name).conf", TunnelFiles.interfaceNamePath(name)] {
             try? fm.removeItem(atPath: path)
         }
         log("removed tunnel \(name)")

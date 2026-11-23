@@ -69,7 +69,7 @@ public final class TunnelControllerLaunchd: ConnectionController, ServiceDirecto
             lastChange: state.connectedSince ?? state.since,
             dnsServers: state.dnsServers,
             dnsSearchDomains: [],
-            isPrimaryInterface: false,
+            isPrimaryInterface: state.defaultRoute ?? false,
             interfaceName: Self.interfaceName(state),
             signInURL: state.signInURL.flatMap(URL.init(string:)),
             signInAttempt: state.signInAttempt,
@@ -218,6 +218,11 @@ public enum TunnelInstaller {
         if !FileManager.default.fileExists(atPath: "\(prefix)/bin/openfortivpn") { missing.append("openfortivpn") }
         if !FileManager.default.fileExists(atPath: "\(prefix)/bin/openconnect") { missing.append("openconnect") }
         return missing
+    }
+
+    /// Whether amneziawg-go and awg are in place for AmneziaWG tunnels.
+    public static func wireGuardToolStatus() -> TunnelFiles.WireGuardToolStatus {
+        TunnelFiles.wireGuardToolStatus(homebrewPrefix: homebrewPrefix) { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     public static func setUp() throws {

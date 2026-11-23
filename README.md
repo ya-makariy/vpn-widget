@@ -66,6 +66,9 @@ tunnel itself, with the same CLI tools the Linux version uses:
   your default browser, nothing else to click;
 - **openconnect** for the AnyConnect protocol, with the password stored once.
 
+It can also run [AmneziaWG and WireGuard](#amneziawg-and-wireguard) tunnels
+from their `.conf` files, described below.
+
 Install the tools (`brew install openfortivpn openconnect`), then in Settings →
 Tunnels click **Set Up Tunnels…** once. It asks for an administrator password
 and:
@@ -110,9 +113,85 @@ window shows the end of the file (the daemon's own lines and everything the
 tool printed) and keeps up with it while **Follow** is on. From the command
 line, `vpnw log <tunnel> -f` does the same.
 
+### AmneziaWG and WireGuard
+
+The AmneziaWG and WireGuard apps from the App Store register their tunnels with
+macOS, and those show up as profiles like any other. The AmneziaVPN desktop
+client does not, and keeps one tunnel up at a time. For `.conf` files from
+several servers, each as its own row, the widget runs the tunnel itself:
+**Add Tunnel → AmneziaWG / WireGuard**, then **Import .conf…**.
+
+It uses two tools, **amneziawg-go** (the userspace tunnel) and **awg** (from
+amneziawg-tools, which configures it). A plain WireGuard config goes through
+the same two: without the obfuscation parameters (`Jc`, `Jmin`, `Jmax`, `S1`,
+`S2`, `H1`–`H4`, …) amneziawg-go is expected to speak the plain WireGuard
+protocol. That backward compatibility is AmneziaWG's design, and an assumption
+here: the widget has no separate wireguard-go path.
+
+Homebrew has no formulae for them and the release does not bundle them, so
+build them once. amneziawg-go needs Go (`brew install go`), awg only the
+Command Line Tools:
+
+```sh
+git clone https://github.com/amnezia-vpn/amneziawg-go
+make -C amneziawg-go
+sudo make -C amneziawg-go install PREFIX=/usr/local
+
+git clone https://github.com/amnezia-vpn/amneziawg-tools
+make -C amneziawg-tools/src
+sudo make -C amneziawg-tools/src install PREFIX=/usr/local WITH_WGQUICK=no WITH_BASHCOMPLETION=no
+```
+
+That puts `amneziawg-go` and `awg` in `/usr/local/bin`. Setup looks for them
+there and in Homebrew's `bin`, and copies them root-owned next to the other
+tools: click **Set Up Again…** after installing them. The form says so while
+either is missing.
+
+What happens to the `.conf`:
+
+- It is stored whole, keys included, in a root-only file under
+  `/usr/local/etc/vpn-widget`, where the openconnect password goes. The
+  widget's own settings and the files under `/var/run/vpn-widget` keep only
+  what the form shows: endpoint, addresses, allowed IPs, DNS, MTU. Keys are
+  kept out of the log.
+- The daemon runs `amneziawg-go -f utun` and, once it has its interface, does
+  what `wg-quick` would: `awg setconf` with the file minus wg-quick's own keys
+  (`Address`, `DNS`, `MTU`, `Table`, the hooks, `SaveConfig`), `ifconfig` for
+  each `Address` and the `MTU`, and a route per `AllowedIPs` entry. Everything
+  else in the file reaches awg as written, so parameters of a newer AmneziaWG
+  work without a new widget. When the tunnel stops, amneziawg-go exits, its
+  interface goes, and the routes with it.
+- **`PreUp`, `PostUp`, `PreDown` and `PostDown` are never run.** The daemon is
+  root and the file came from somewhere else. The form lists the ones it found
+  and ignores them; so with `SaveConfig`. `Table` may be `auto`, `main` or
+  `off` (no routes), as in wg-quick on macOS.
+- **`DNS =` is never made the system resolver.** Its servers become the DNS
+  servers for the tunnel's split-DNS domains (the form fills them in), and with
+  no domains the tunnel changes no DNS at all.
+- `AllowedIPs = 0.0.0.0/0` or `::/0` (or the two `/1` halves) takes the default
+  route, as two `/1` routes over the system's own, with a host route to the
+  peer by the current gateway so that the tunnel's packets stay outside it.
+  The form and the profile warn about it, as for any tunnel that carries
+  everything. There is no kill switch: when the tunnel stops, traffic goes
+  out the usual way.
+
+"Connected" means a handshake in the last three minutes
+(`awg show <interface> latest-handshakes`); before the first one the row says
+connecting, and it goes back to connecting if handshakes stop. WireGuard only
+handshakes when there is traffic, so a peer without `PersistentKeepalive` on an
+idle tunnel reads as connecting until something is sent. A service check URL
+keeps such a tunnel busy only while it is connected;
+`PersistentKeepalive = 25` in the `[Peer]` section is the fix, and the form
+says when it is missing. The peer's name is resolved when the tunnel starts;
+Reconnect picks up a changed address.
+
+Do not run the same config here and in the AmneziaWG or WireGuard app at once:
+the server sees one peer, and the two take turns breaking each other.
+
 Known gap: the root-owned copies of openfortivpn and openconnect still load
 Homebrew's dylibs, which your user can write. Someone already running code as
-you could use that to become root. Static builds would close it.
+you could use that to become root. Static builds would close it. (amneziawg-go
+is a static Go binary and awg links only the system's libraries.)
 
 ## Several VPNs at once
 
@@ -124,8 +203,9 @@ on the profile when it sees them:
 - a tunnel that **takes the default route** carries everything, including the
   other tunnels' traffic;
 - a tunnel whose DNS servers **answer every query**. FortiClient does this; so do
-  WireGuard and AmneziaWG whenever the config has a `DNS =` line. The last tunnel
-  up wins, and names of the other tunnels stop resolving.
+  the WireGuard and AmneziaWG apps whenever the config has a `DNS =` line (the
+  widget's own AmneziaWG tunnels never do). The last tunnel up wins, and names
+  of the other tunnels stop resolving.
 
 ### Split DNS
 
@@ -169,7 +249,8 @@ Settings live in `~/Library/Application Support/VPN Widget/profiles.json`.
 ## Development
 
 Needs macOS 26 and Xcode 26 or newer; own tunnels also need Homebrew's
-openfortivpn and openconnect. The Command Line Tools alone cannot
+openfortivpn and openconnect, or amneziawg-go and awg built as described
+above. The Command Line Tools alone cannot
 build it: the SwiftUI macros and the Swift Testing plugin ship with Xcode. The
 Makefile sets `DEVELOPER_DIR` to `/Applications/Xcode.app` when `xcode-select`
 points elsewhere.

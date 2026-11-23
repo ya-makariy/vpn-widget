@@ -20,6 +20,9 @@ public enum ToolEvent: Equatable, Sendable {
     case untrustedCertificate(String)
     /// Something else went wrong; the text is the tool's own.
     case error(String)
+    /// The link exists but the far side is not answering (amneziawg: no
+    /// recent handshake); the text says what is being waited for.
+    case waiting(String)
 }
 
 public enum OpenFortiVPNOutput {

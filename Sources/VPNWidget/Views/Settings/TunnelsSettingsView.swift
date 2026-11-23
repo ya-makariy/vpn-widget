@@ -56,7 +56,7 @@ struct TunnelsSettingsView: View {
                     .disabled(model.tunnelSetupStatus == .notSetUp)
                 }
             } footer: {
-                Text("A tunnel is a launchd job on this Mac that runs openfortivpn or openconnect as root. The widget starts and stops it without a password through a sudoers rule limited to these jobs. Connecting needs no other app: a SAML sign-in opens in the browser.")
+                Text("A tunnel is a launchd job on this Mac that runs openfortivpn, openconnect or amneziawg-go as root. The widget starts and stops it without a password through a sudoers rule limited to these jobs. Connecting needs no other app: a SAML sign-in opens in the browser.")
             }
         }
         .formStyle(.grouped)
@@ -121,6 +121,9 @@ struct TunnelEditorView: View {
     @State private var errorText: String?
     @State private var domainsText: String
     @State private var serversText: String
+    /// amneziawg: the `.conf` picked in this form. It has the keys in it, and
+    /// goes where the password goes.
+    @State private var confText: String?
 
     init(profile: VPNProfile, isNew: Bool) {
         _profile = State(initialValue: profile)
@@ -137,6 +140,9 @@ struct TunnelEditorView: View {
 
     private var canSave: Bool {
         guard let t = profile.tunnel else { return false }
+        if kind == .amneziawg {
+            return TunnelConfig.isValidName(t.name) && !profile.displayName.isEmpty && (confText != nil || t.hasSecret)
+        }
         return TunnelConfig.isValidName(t.name) && TunnelConfig.parseGateway(t.host) != nil && (1...65535).contains(t.port) && !profile.displayName.isEmpty
             && (kind != .openconnect || !(t.username ?? "").isEmpty)
     }
@@ -153,15 +159,20 @@ struct TunnelEditorView: View {
                         .disabled(!isNew)
                         .onChange(of: tunnel.wrappedValue.name) { _, _ in if isNew { nameEdited = true } }
                         .font(.body.monospaced())
-                    TextField("Gateway host", text: tunnel.host, prompt: Text("vpn.example.com"))
-                        .autocorrectionDisabled()
-                        .onSubmit(normalizeGateway)
-                    if let parts = TunnelConfig.parseGateway(tunnel.wrappedValue.host), parts.host != tunnel.wrappedValue.host || parts.port != nil || parts.realm != nil {
-                        Text("Will use host \(parts.host)\(parts.port.map { ", port \($0)" } ?? "")\(parts.realm.map { ", realm \($0)" } ?? "")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    if kind != .amneziawg {
+                        TextField("Gateway host", text: tunnel.host, prompt: Text("vpn.example.com"))
+                            .autocorrectionDisabled()
+                            .onSubmit(normalizeGateway)
+                        if let parts = TunnelConfig.parseGateway(tunnel.wrappedValue.host), parts.host != tunnel.wrappedValue.host || parts.port != nil || parts.realm != nil {
+                            Text("Will use host \(parts.host)\(parts.port.map { ", port \($0)" } ?? "")\(parts.realm.map { ", realm \($0)" } ?? "")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        TextField("Port", value: tunnel.port, format: .number.grouping(.never))
                     }
-                    TextField("Port", value: tunnel.port, format: .number.grouping(.never))
+                }
+                if kind == .amneziawg {
+                    WireGuardConfSection(summary: tunnel.wrappedValue.wireGuard, stored: tunnel.wrappedValue.hasSecret, pending: confText != nil, onImport: imported)
                 }
                 if kind == .openfortivpn {
                     Section("Sign-in") {
@@ -174,7 +185,7 @@ struct TunnelEditorView: View {
                         TextField("Trusted certificate digest", text: optional(tunnel.trustedCert), prompt: Text("sha256 hex, for a self-signed gateway"))
                             .font(.body.monospaced())
                     }
-                } else {
+                } else if kind == .openconnect {
                     Section("Sign-in") {
                         TextField("Username", text: optional(tunnel.username))
                         SecureField("Password", text: $password, prompt: Text(tunnel.wrappedValue.hasSecret ? "stored; type to replace" : ""))
@@ -187,12 +198,14 @@ struct TunnelEditorView: View {
                 Section {
                     TextField("Domains", text: $domainsText, prompt: Text("corp.example lab.example"))
                         .autocorrectionDisabled()
-                    TextField("DNS servers", text: $serversText, prompt: Text("empty: the servers the gateway sends"))
+                    TextField("DNS servers", text: $serversText, prompt: Text(kind == .amneziawg ? "empty: the DNS line of the config" : "empty: the servers the gateway sends"))
                         .autocorrectionDisabled()
                 } header: {
                     Text("Split DNS")
                 } footer: {
-                    Text("While the tunnel is up, the daemon writes /etc/resolver files for these domains and removes them when it goes down. With no domains, the gateway's DNS servers take over all lookups while the tunnel is up.")
+                    Text(kind == .amneziawg
+                        ? "While the tunnel is up, the daemon writes /etc/resolver files for these domains and removes them when it goes down. The config's DNS servers are used for these domains only, never as the system's resolver: with no domains, the tunnel changes no DNS."
+                        : "While the tunnel is up, the daemon writes /etc/resolver files for these domains and removes them when it goes down. With no domains, the gateway's DNS servers take over all lookups while the tunnel is up.")
                 }
                 Section {
                     Picker("Level", selection: tunnel.logLevel) {
@@ -241,6 +254,16 @@ struct TunnelEditorView: View {
         Binding(get: { binding.wrappedValue ?? "" }, set: { binding.wrappedValue = $0.isEmpty ? nil : $0 })
     }
 
+    /// Takes a picked `.conf`: its summary into the profile, its DNS as the
+    /// split-DNS servers when none are typed, its file name as the title.
+    private func imported(_ text: String, _ conf: WireGuardConf, _ title: String) {
+        confText = text
+        tunnel.wrappedValue.apply(conf)
+        if serversText.trimmingCharacters(in: .whitespaces).isEmpty { serversText = conf.dnsServers.joined(separator: " ") }
+        if domainsText.trimmingCharacters(in: .whitespaces).isEmpty { domainsText = conf.dnsSearchDomains.joined(separator: " ") }
+        if isNew, profile.displayName.isEmpty { profile.displayName = title }
+    }
+
     private func normalizeGateway() {
         if let t = profile.tunnel { profile.tunnel = t.normalized }
     }
@@ -254,7 +277,7 @@ struct TunnelEditorView: View {
         if p.providerKind != kind.providerKind { p.providerKind = kind.providerKind }
         saving = true
         errorText = nil
-        let ok = model.saveTunnel(p, password: password.isEmpty ? nil : password)
+        let ok = model.saveTunnel(p, password: kind == .amneziawg ? confText : password.isEmpty ? nil : password)
         saving = false
         if ok {
             dismiss()
