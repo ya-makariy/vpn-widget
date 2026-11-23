@@ -233,7 +233,7 @@ public enum TunnelInstaller {
     /// Installs or updates a tunnel: its profile goes to the root-only config,
     /// the password, if given, to the root-only secrets.
     public static func install(_ profile: VPNProfile, password: String?) throws {
-        guard let tunnel = profile.tunnel, TunnelConfig.isValidName(tunnel.name) else { throw ActionError("invalid tunnel name") }
+        guard let tunnel = profile.tunnel, TunnelConfig.isInstalledName(tunnel.name) else { throw ActionError("invalid tunnel name") }
         let fm = FileManager.default
         try fm.createDirectory(at: stageDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let config = stageDirectory.appendingPathComponent("\(tunnel.name).json")
@@ -257,7 +257,7 @@ public enum TunnelInstaller {
     }
 
     public static func remove(name: String) throws {
-        guard TunnelConfig.isValidName(name) else { throw ActionError("invalid tunnel name") }
+        guard TunnelConfig.isInstalledName(name) else { throw ActionError("invalid tunnel name") }
         try PrivilegedRunner.run(TunnelFiles.removeScript(name: name))
     }
 }

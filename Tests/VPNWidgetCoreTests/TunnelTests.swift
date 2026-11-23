@@ -15,6 +15,44 @@ import Testing
         #expect(TunnelConfig.suggestName(from: "  --  ") == "")
     }
 
+    @Test func namesAreASCII() {
+        // U+0440, the Cyrillic letter that looks like a Latin p.
+        let lookalike = "\u{0440}rod"
+        #expect(TunnelConfig.isValidName("prod"))
+        #expect(!TunnelConfig.isValidName(lookalike))
+        #expect(!TunnelConfig.isValidName("caf\u{00E9}"))
+        // Arabic-Indic digits are decimal digits too.
+        #expect(!TunnelConfig.isValidName("a\u{0661}"))
+        #expect(TunnelConfig.isValidName(String(repeating: "a", count: 40)))
+        #expect(!TunnelConfig.isValidName(String(repeating: "a", count: 41)))
+    }
+
+    @Test func installedNamesStayAddressable() {
+        #expect(TunnelConfig.isInstalledName("corp-sso"))
+        #expect(TunnelConfig.isInstalledName("\u{0440}rod"))
+        #expect(TunnelConfig.isInstalledName("caf\u{00E9}"))
+    }
+
+    @Test func unsafeNamesAreRejectedByBothChecks() {
+        let unsafe = ["", "a/b", "../x", "a.b", ".", "a b", "a\tb", "a\nb", "-x", "x-", "Corp", "a;b", "a$b", "a\u{0}b", "\u{0440}/x", "a\u{00A0}b", "a\u{0301}", String(repeating: "\u{0440}", count: 41)]
+        for name in unsafe {
+            #expect(!TunnelConfig.isValidName(name), "strict: \(name.debugDescription)")
+            #expect(!TunnelConfig.isInstalledName(name), "installed: \(name.debugDescription)")
+        }
+    }
+
+    @Test func suggestedNamesAreASCII() {
+        #expect(TunnelConfig.suggestName(from: "\u{0420}rod VPN") == "rod-vpn")
+        #expect(TunnelConfig.suggestName(from: "Caf\u{00E9} 2") == "caf-2")
+        #expect(TunnelConfig.suggestName(from: "\u{043F}\u{0440}\u{043E}\u{0434}") == "")
+        #expect(TunnelConfig.suggestName(from: "Lab \u{0661}\u{0662}") == "lab")
+        for title in ["\u{0420}rod VPN", "Caf\u{00E9} 2", "\u{00DF}\u{0131}x", "Stra\u{00DF}e-9", String(repeating: "\u{0440}a", count: 60)] {
+            let name = TunnelConfig.suggestName(from: title)
+            #expect(name.unicodeScalars.allSatisfy { $0.isASCII })
+            #expect(name.isEmpty || TunnelConfig.isValidName(name))
+        }
+    }
+
     @Test func profileIDs() {
         #expect(TunnelConfig.profileID(name: "x") == "tunnel:x")
         #expect(TunnelConfig.name(fromProfileID: "tunnel:x") == "x")

@@ -139,9 +139,23 @@ struct TunnelEditorView: View {
 
     private var canSave: Bool {
         guard let t = profile.tunnel else { return false }
-        return TunnelConfig.isValidName(t.name) && TunnelConfig.parseGateway(t.host) != nil && (1...65535).contains(t.port) && !profile.displayName.isEmpty
+        return (isNew ? TunnelConfig.isValidName(t.name) : TunnelConfig.isInstalledName(t.name)) && TunnelConfig.parseGateway(t.host) != nil && (1...65535).contains(t.port) && !profile.displayName.isEmpty
             && (kind != .openconnect || !(t.username ?? "").isEmpty)
             && checkURL.isValid
+    }
+
+    /// Why the tunnel name is refused, or, for an installed tunnel, why it
+    /// should be replaced.
+    private var nameHint: String? {
+        let name = profile.tunnel?.name ?? ""
+        guard !name.isEmpty, !TunnelConfig.isValidName(name) else { return nil }
+        if !isNew {
+            return "This name has non-ASCII letters, so it cannot be typed in a terminal. The tunnel keeps working; to fix the name, remove the tunnel and add it again."
+        }
+        if !name.unicodeScalars.allSatisfy(\.isASCII) {
+            return "The name has non-ASCII characters, such as a Cyrillic letter that looks like a Latin one. Use only a-z, 0-9 and dashes."
+        }
+        return "Use only lowercase a-z, 0-9 and dashes, at most 40 characters, with no dash at either end."
     }
 
     private var checkURL: CheckURL.Parsed { CheckURL.parse(checkURLText) }
@@ -158,6 +172,11 @@ struct TunnelEditorView: View {
                         .disabled(!isNew)
                         .onChange(of: tunnel.wrappedValue.name) { _, _ in if isNew { nameEdited = true } }
                         .font(.body.monospaced())
+                    if let nameHint {
+                        Text(nameHint)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     TextField("Gateway host", text: tunnel.host, prompt: Text("vpn.example.com"))
                         .autocorrectionDisabled()
                         .onSubmit(normalizeGateway)
