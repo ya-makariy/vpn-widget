@@ -121,12 +121,14 @@ struct TunnelEditorView: View {
     @State private var errorText: String?
     @State private var domainsText: String
     @State private var serversText: String
+    @State private var checkURLText: String
 
     init(profile: VPNProfile, isNew: Bool) {
         _profile = State(initialValue: profile)
         self.isNew = isNew
         _domainsText = State(initialValue: profile.dnsDomains.joined(separator: " "))
         _serversText = State(initialValue: profile.dnsServers.joined(separator: " "))
+        _checkURLText = State(initialValue: profile.checkURL?.absoluteString ?? "")
     }
 
     private var tunnel: Binding<TunnelConfig> {
@@ -139,7 +141,10 @@ struct TunnelEditorView: View {
         guard let t = profile.tunnel else { return false }
         return TunnelConfig.isValidName(t.name) && TunnelConfig.parseGateway(t.host) != nil && (1...65535).contains(t.port) && !profile.displayName.isEmpty
             && (kind != .openconnect || !(t.username ?? "").isEmpty)
+            && checkURL.isValid
     }
+
+    private var checkURL: CheckURL.Parsed { CheckURL.parse(checkURLText) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -209,7 +214,18 @@ struct TunnelEditorView: View {
                     Text("The log is rotated every day at midnight: the day's file is compressed and kept for this many days. ERROR keeps failures only; DEBUG adds the tool's own debug output, TRACE its packet traces. Changes apply the next time the tunnel starts.")
                 }
                 Section {
-                    TextField("Service check URL", text: Binding(get: { profile.checkURL?.absoluteString ?? "" }, set: { profile.checkURL = URL(string: $0) }), prompt: Text("https://service.behind.the.tunnel/"))
+                    TextField("Service check URL", text: $checkURLText, prompt: Text("https://service.behind.the.tunnel/"))
+                        .autocorrectionDisabled()
+                        .onSubmit(normalizeCheckURL)
+                    if !checkURL.isValid {
+                        Text("Not an http or https URL with a host.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    } else if let url = checkURL.url, url.absoluteString != checkURLText {
+                        Text("Will check \(url.absoluteString)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Toggle("Don't verify the certificate", isOn: $profile.insecureTLS)
                     Toggle("Connect when VPN Widget starts", isOn: $profile.autoConnect)
                 }
@@ -245,9 +261,16 @@ struct TunnelEditorView: View {
         if let t = profile.tunnel { profile.tunnel = t.normalized }
     }
 
+    private func normalizeCheckURL() {
+        if let url = checkURL.url { checkURLText = url.absoluteString }
+    }
+
     private func save() {
         normalizeGateway()
+        guard checkURL.isValid else { return }
+        normalizeCheckURL()
         var p = profile
+        p.checkURL = checkURL.url
         p.dnsDomains = domainsText.split(whereSeparator: { $0 == " " || $0 == "," }).compactMap { ResolverFiles.normalizeDomain(String($0)) }
         p.dnsServers = serversText.split(whereSeparator: { $0 == " " || $0 == "," }).map(String.init).filter(ResolverFiles.isServer)
         if let t = p.tunnel { p.id = TunnelConfig.profileID(name: t.name) }
