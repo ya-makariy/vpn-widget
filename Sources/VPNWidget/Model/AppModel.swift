@@ -52,6 +52,13 @@ final class AppModel {
         self.settings = settings
         self.isFake = fake
         var loaded = (try? store.load()) ?? StoredConfig()
+        // An own tunnel that was hidden and shown by an earlier version lost
+        // its config in the settings; the installed copy still has it.
+        let repaired = TunnelAdoption.repaired(loaded.profiles, installed: TunnelControllerLaunchd.installedProfile)
+        if repaired != loaded.profiles {
+            loaded.profiles = repaired
+            try? store.save(loaded)
+        }
         let gated = GatedNotifier(fake ? LogNotifier() : NotifierUN())
         gated.setEnabled(settings.notificationsEnabled)
         notifier = gated
@@ -186,7 +193,12 @@ final class AppModel {
     func setShown(_ service: DiscoveredService, _ shown: Bool) {
         var profiles = config.profiles
         if shown, !profiles.contains(where: { $0.id == service.id }) {
-            profiles.append(VPNProfile(adopting: service))
+            // An own tunnel comes back with its config, as installed.
+            guard let profile = TunnelAdoption.profile(adopting: service, installed: TunnelControllerLaunchd.installedProfile) else {
+                settingsError = "Could not read the installed settings of tunnel \(service.name). Add it again in Tunnels under the same name to show it."
+                return
+            }
+            profiles.append(profile)
         } else if !shown {
             profiles.removeAll { $0.id == service.id }
         }
