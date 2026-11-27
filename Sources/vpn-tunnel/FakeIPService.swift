@@ -263,7 +263,7 @@ final class FakeIPService: @unchecked Sendable {
     // MARK: pf
 
     private func ensureProxy() throws {
-        guard lock.withLock({ proxy == nil }) else { return }
+        guard lock.withLock({ self.proxy == nil }) else { return }
         let proxy = try TCPProxy(interface: interface, log: log) { [weak self] fake in self?.realAddress(for: fake) }
         lock.withLock { self.proxy = proxy }
         proxy.start()
