@@ -11,6 +11,7 @@ usage: vpn-tunnel run <name>                         run the tunnel until TERM (
        vpn-tunnel setup <user> <homebrew prefix>     directories, tools, sudoers rule (root)
        vpn-tunnel install <name> <profile.json> [<secret file>]
        vpn-tunnel remove <name>
+       vpn-tunnel set-owner <network> <name|->       which tunnel holds a shared network (sudo, from the widget)
        vpn-tunnel status <name>                      print the state file
 """
 
@@ -35,6 +36,9 @@ do {
     case ("remove", 2):
         try Admin.requireRoot()
         try Admin.remove(name: arguments[1])
+    case ("set-owner", 3):
+        try Admin.requireRoot()
+        try Admin.setOwner(network: arguments[1], tunnel: arguments[2] == "-" ? nil : arguments[2])
     case ("status", 2):
         if let state = TunnelControllerLaunchd.readState(arguments[1]) {
             print(String(decoding: try TunnelState.encoder.encode(state), as: UTF8.self))

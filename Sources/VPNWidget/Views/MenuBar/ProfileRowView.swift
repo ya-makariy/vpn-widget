@@ -127,7 +127,17 @@ struct ProfileRowView: View {
 
 /// Traffic, reachability and the interface, while the tunnel is up.
 struct ProfileDetailsView: View {
+    @Environment(AppModel.self) private var model
     var row: ProfileRowState
+
+    /// Shared networks this tunnel reaches through its stand-in ranges.
+    private var standIns: [(network: String, fake: String)] {
+        guard let name = TunnelConfig.name(fromProfileID: row.id) else { return [] }
+        return model.sharedNetworks.compactMap { shared in
+            guard shared.holder != name, let fake = shared.members.first(where: { $0.tunnel == name })?.fake else { return nil }
+            return (shared.network, fake)
+        }
+    }
 
     var body: some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 3) {
@@ -154,6 +164,13 @@ struct ProfileDetailsView: View {
                     if let name = row.interfaceName {
                         Label(name, systemImage: "cable.connector")
                     }
+                }
+            }
+            ForEach(standIns, id: \.network) { item in
+                GridRow {
+                    Label("\(item.network) → \(item.fake)", systemImage: "arrow.triangle.branch")
+                        .help("Another tunnel has \(item.network); this one reaches its hosts there through \(item.fake)")
+                        .gridCellColumns(2)
                 }
             }
         }

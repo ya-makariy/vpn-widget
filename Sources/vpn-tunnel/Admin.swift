@@ -137,7 +137,23 @@ enum Admin {
         for path in [TunnelFiles.plistPath(name), TunnelFiles.configPath(name), TunnelFiles.secretPath(name), TunnelFiles.statePath(name), TunnelFiles.publicProfilePath(name), "\(TunnelFiles.generatedDirectory)/\(name).conf", TunnelFiles.interfaceNamePath(name)] {
             try? fm.removeItem(atPath: path)
         }
+        FakeIPService.withTable { $0.remove(tunnel: name) }
         log("removed tunnel \(name)")
+    }
+
+    /// The user's choice of the tunnel that holds a shared network's real
+    /// addresses. Run through sudo without a password, so everything is
+    /// checked: a network as an address and prefix, an installed tunnel. The
+    /// daemons notice the table change and move the route themselves.
+    static func setOwner(network text: String, tunnel: String?) throws {
+        guard let network = IPNetwork(text), !network.isIPv6, network.prefix >= 8 else { throw ActionError("not a network: \(text)") }
+        if let tunnel {
+            guard TunnelConfig.isInstalledName(tunnel), FileManager.default.fileExists(atPath: TunnelFiles.plistPath(tunnel)) else {
+                throw ActionError("no tunnel named \(tunnel)")
+            }
+        }
+        FakeIPService.withTable { $0.setOwner(tunnel, of: network) }
+        log(tunnel.map { "\(network.network) goes to \($0)" } ?? "\(network.network): no choice")
     }
 
     static func launchctl(_ arguments: [String]) -> Int32 {

@@ -102,6 +102,43 @@ public final class TunnelControllerLaunchd: ConnectionController, ServiceDirecto
         }
     }
 
+    // MARK: Daemons on an older helper
+
+    /// Own tunnels whose daemon is up on a helper older than the installed one.
+    public static func tunnelsOnOlderHelper() -> [String] {
+        let installed = TunnelFiles.helperBuild()
+        return installedNames().filter { name in
+            guard let state = readState(name), isAlive(pid: state.pid), state.phase != .stopped, state.phase != .failed else { return false }
+            return state.runsOlderHelper(than: installed)
+        }
+    }
+
+    // MARK: Shared networks
+
+    /// Networks two or more own tunnels want, from their state files and the
+    /// stand-in table (readable by everyone; root writes it).
+    public static func sharedNetworks() -> [FakeIP.SharedNetwork] {
+        var states: [String: TunnelState] = [:]
+        for name in installedNames() {
+            guard let state = readState(name), isAlive(pid: state.pid) else { continue }
+            states[name] = state
+        }
+        let table = FileManager.default.contents(atPath: TunnelFiles.publicFakeIPTablePath).flatMap { try? JSONDecoder().decode(FakeIP.Table.self, from: $0) }
+        return FakeIP.sharedNetworks(states: states, owners: table?.owners ?? [:])
+    }
+
+    /// The user's choice of the tunnel that holds a shared network, written
+    /// by the helper through sudo. False when the sudoers rule is from before
+    /// it allowed this: then `setOwnerWithPrompt` has to do it.
+    public static func setOwner(network: String, tunnel: String?) async throws -> Bool {
+        do {
+            try await sudo(TunnelFiles.setOwnerCommand(network: network, tunnel: tunnel))
+            return true
+        } catch let error as ActionError where error.description.contains("Set Up Tunnels") {
+            return false
+        }
+    }
+
     static func sudo(_ command: [String]) async throws {
         let (status, output) = try await runProcess("/usr/bin/sudo", Array(command.dropFirst()))
         guard status == 0 else {
@@ -224,6 +261,12 @@ public enum TunnelInstaller {
     /// Whether amneziawg-go and awg are in place for AmneziaWG tunnels.
     public static func wireGuardToolStatus() -> TunnelFiles.WireGuardToolStatus {
         TunnelFiles.wireGuardToolStatus(homebrewPrefix: homebrewPrefix) { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// The choice through the admin prompt, refreshing an older helper too.
+    public static func setOwnerWithPrompt(network: String, tunnel: String?) throws {
+        let refresh = setupStatus() == .outdated ? bundledHelper : nil
+        try PrivilegedRunner.run(TunnelFiles.setOwnerScript(network: network, tunnel: tunnel, refreshHelperFrom: refresh))
     }
 
     public static func setUp() throws {

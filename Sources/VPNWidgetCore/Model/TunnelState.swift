@@ -34,10 +34,20 @@ public struct TunnelState: Codable, Equatable, Sendable {
     /// The tunnel was asked to carry the default route (amneziawg:
     /// `AllowedIPs = 0.0.0.0/0`). Nil in files from before this was written.
     public var defaultRoute: Bool?
+    /// Networks of this tunnel that another tunnel's route took, and the
+    /// stand-in ranges they are reached by instead. Nil in files from before
+    /// this was written.
+    public var fakeNetworks: [FakeNetwork]?
+    /// The daemon knows stand-in ranges, so the tunnel can give a shared
+    /// network up to another. Nil from daemons before them.
+    public var supportsStandIns: Bool?
+    /// The helper build the daemon runs (TunnelFiles.helperBuild), to tell a
+    /// daemon started before the helper was replaced. Nil from older daemons.
+    public var helperBuild: String?
     public var pid: Int32
     public var updated: Date
 
-    public init(phase: Phase, since: Date, connectedSince: Date? = nil, signInURL: String? = nil, signInAttempt: Int = 0, interfaceName: String? = nil, address: String? = nil, dnsServers: [String] = [], message: String? = nil, untrustedCertificate: String? = nil, defaultRoute: Bool? = nil, pid: Int32 = 0, updated: Date = Date()) {
+    public init(phase: Phase, since: Date, connectedSince: Date? = nil, signInURL: String? = nil, signInAttempt: Int = 0, interfaceName: String? = nil, address: String? = nil, dnsServers: [String] = [], message: String? = nil, untrustedCertificate: String? = nil, defaultRoute: Bool? = nil, fakeNetworks: [FakeNetwork]? = nil, supportsStandIns: Bool? = nil, helperBuild: String? = nil, pid: Int32 = 0, updated: Date = Date()) {
         self.phase = phase
         self.since = since
         self.connectedSince = connectedSince
@@ -49,8 +59,33 @@ public struct TunnelState: Codable, Equatable, Sendable {
         self.message = message
         self.untrustedCertificate = untrustedCertificate
         self.defaultRoute = defaultRoute
+        self.fakeNetworks = fakeNetworks
+        self.supportsStandIns = supportsStandIns
+        self.helperBuild = helperBuild
         self.pid = pid
         self.updated = updated
+    }
+
+    /// A network another tunnel has, reached through a stand-in range.
+    public struct FakeNetwork: Codable, Equatable, Sendable {
+        public var real: String
+        public var fake: String
+        /// The interface whose route took the real network; empty when none
+        /// does now and the range is kept from before.
+        public var sharedWith: String
+
+        public init(real: String, fake: String, sharedWith: String) {
+            self.real = real
+            self.fake = fake
+            self.sharedWith = sharedWith
+        }
+    }
+
+    /// The daemon runs an older helper than the one installed now: it picks
+    /// the new one up when the tunnel reconnects.
+    public func runsOlderHelper(than installed: String?) -> Bool {
+        guard let installed else { return false }
+        return helperBuild != installed
     }
 
     /// The status the engine understands. A state whose daemon is gone counts

@@ -78,7 +78,9 @@ and:
   file you can edit);
 - writes `/etc/sudoers.d/vpn-widget`, which lets your user run exactly
   `launchctl kickstart`, `kill TERM` and `print` on jobs named
-  `com.ya-makariy.vpn-widget.*`, and nothing else.
+  `com.ya-makariy.vpn-widget.*`, and `vpn-tunnel set-owner` (choosing which
+  tunnel holds a [shared network](#overlapping-networks); the helper checks its
+  arguments), and nothing else.
 
 **Add Tunnel** asks for the gateway, the sign-in details and the split-DNS
 domains, then installs a launchd daemon for it (administrator password again,
@@ -106,6 +108,14 @@ becomes `<name>.<date>.log.gz`, and archives older than the tunnel's retention,
 rotates at its next start. The tunnel's form has both settings under **Log**:
 the retention, and the level — `ERROR` (failures only), `INFO` (the default),
 `DEBUG` (the tool's debug output too) or `TRACE` (with packet traces).
+
+Applying a change to a tunnel that is up reconnects it when the change reaches
+the daemon: the tunnel's settings, its split DNS, a new password or `.conf`.
+The name in the panel, the service check and "connect when VPN Widget starts"
+are the widget's own and reconnect nothing. After an app update replaced the
+helper, tunnels still running the old one reconnect too, except SAML tunnels,
+which would ask for a sign-in: those show "Reconnect to update" in Settings →
+Tunnels until you do it yourself.
 
 To see why a tunnel does not come up, open its log: **Show Log** in the row's
 `…` menu in the panel, or **Log** next to the tunnel in Settings → Tunnels. The
@@ -167,7 +177,13 @@ What happens to the `.conf`:
   `off` (no routes), as in wg-quick on macOS.
 - **`DNS =` is never made the system resolver.** Its servers become the DNS
   servers for the tunnel's split-DNS domains (the form fills them in), and with
-  no domains the tunnel changes no DNS at all.
+  no domains the tunnel changes no DNS at all. Without a `DNS =` line a new
+  tunnel's form starts with `9.9.9.9`, which you can change: it answers public
+  names that point at private addresses (home routers' resolvers often drop
+  those, as DNS rebinding protection) and is reachable over UDP on networks
+  that hold back `1.1.1.1` and `8.8.8.8`. A DNS server outside the tunnel's
+  `AllowedIPs` is reached the usual way, not through the tunnel, where the peer
+  would drop it.
 - `AllowedIPs = 0.0.0.0/0` or `::/0` (or the two `/1` halves) takes the default
   route, as two `/1` routes over the system's own, with a host route to the
   peer by the current gateway so that the tunnel's packets stay outside it.
@@ -220,6 +236,53 @@ takes them away again. Files the widget did not write are never touched.
 Check the result with `scutil --dns`, which lists a resolver per domain. For
 WireGuard and AmneziaWG profiles, also remove the `DNS =` line from the config
 so that they stop taking over the system resolver.
+
+### Overlapping networks
+
+Unrelated organisations pick from the same few private ranges, so two tunnels
+often route the same network: say `10.20.0.0/24` belongs to both the openconnect
+tunnel *A* and the AmneziaWG tunnel *B*. The main routing table can send it to
+one of them only. The widget's own tunnels keep both working:
+
+- The tunnel that holds the network reaches it at its real addresses.
+- Each other tunnel gets the network under a **stand-in range** of the same
+  size, and reaches its own `10.20.0.20` as, say, `192.0.2.20`. Names in its
+  split-DNS domains resolve to the stand-ins, so a browser, `ssh` or `kubectl`
+  by name needs no change. The ranges are kept across restarts, and stay in use
+  while the tunnel is up even when the other tunnel is gone, so an address you
+  wrote down keeps working.
+- **Settings → Tunnels → Shared networks** chooses which tunnel holds each
+  shared network. Choosing reconnects the tunnels that share it; the chosen one
+  takes the route, the others move to their stand-ins. Without a choice, the
+  tunnel that came up first keeps it. The panel shows the stand-ins of a tunnel
+  under its row: `10.20.0.0/24 → 192.0.2.0/24`.
+
+The stand-in ranges come from the documentation networks (RFC 5737):
+`192.0.2.0/24`, `198.51.100.0/24` and `203.0.113.0/24`, routed nowhere. Not
+`198.18.0.0/15`, the range Clash, sing-box and routers running them use for
+their own fake IPs: taking connections to it would break every site they
+proxy. So a network wider than a `/24` gets no stand-in, and three `/24`s (or
+more, narrower) can have one at a time.
+
+How it is carried: the daemon of a tunnel without the real route loads rules
+into its own pf anchor under `com.apple/*` (`/etc/pf.conf` is not edited, and pf
+is enabled with a reference that is released when the tunnel stops), which send
+**TCP** to its stand-in range to `lo0` and redirect it to a listener of the
+daemon. The listener asks pf where each connection was going (`DIOCNATLOOK`),
+and dials the real address from a socket bound to the tunnel's interface, over a
+route scoped to that interface (`route add -ifscope`): scoped routes live next
+to the main one and are used only by sockets bound to their interface, so the
+tunnel that holds the network keeps it. A DNS forwarder on `127.0.0.1` answers
+the tunnel's split-DNS domains and rewrites addresses in the shared network to
+their stand-ins (asking upstream over TCP when UDP gets no answer). Only TCP:
+pf finds no state for redirected UDP datagrams (`DIOCNATLOOK` answers `ENOENT`),
+and ICMP would take forwarding packets through the system. `ping` to a
+stand-in, or UDP to it, gets nothing.
+
+`vpnw overlaps` lists the networks of running tunnels that another tunnel's
+route takes. The ranges and the choices are in
+`/usr/local/etc/vpn-widget/fakeip.json`, with a readable copy in
+`/var/run/vpn-widget/_fakeip.json`.
 
 ## How it works
 
@@ -274,6 +337,7 @@ swift run vpnw start <name>      # what the Connect button does
 swift run vpnw dns <name>        # DNS and routing facts about a profile
 swift run vpnw log <tunnel> -f   # the end of an own tunnel's log, following it
 swift run vpnw check <url>       # the reachability check
+swift run vpnw overlaps          # networks of own tunnels another tunnel's route takes
 ```
 
 Layout: `Sources/VPNWidgetCore` is the engine (models, the poll loop, the

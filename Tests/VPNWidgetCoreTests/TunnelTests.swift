@@ -108,12 +108,59 @@ import Testing
 
     @Test func sudoers() {
         let rule = TunnelFiles.sudoersRule(user: "alice")
-        #expect(rule.contains("alice ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/com.ya-makariy.vpn-widget.*, /bin/launchctl kill TERM system/com.ya-makariy.vpn-widget.*, /bin/launchctl print system/com.ya-makariy.vpn-widget.*"))
+        #expect(rule.contains("alice ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/com.ya-makariy.vpn-widget.*, /bin/launchctl kill TERM system/com.ya-makariy.vpn-widget.*, /bin/launchctl print system/com.ya-makariy.vpn-widget.*, /usr/local/libexec/vpn-widget/vpn-tunnel set-owner *"))
         #expect(rule.hasSuffix("\n"))
+    }
+
+    @Test func whatTheDaemonReads() {
+        var tunnel = TunnelConfig(name: "corp", kind: .openconnect, host: "vpn.example.com", port: 443)
+        tunnel.username = "alice"
+        let base = VPNProfile(tunnel: tunnel, displayName: "Corp")
+        var p = base
+        p.displayName = "Corp 2"
+        p.checkURL = URL(string: "https://wiki.example.com/")
+        p.insecureTLS = true
+        p.autoConnect = true
+        p.tunnel?.hasSecret = true
+        #expect(!p.daemonSettingsDiffer(from: base))
+        p = base
+        p.dnsServers = ["10.0.0.53"]
+        #expect(p.daemonSettingsDiffer(from: base))
+        p = base
+        p.dnsDomains = ["corp.example"]
+        #expect(p.daemonSettingsDiffer(from: base))
+        p = base
+        p.tunnel?.username = "bob"
+        #expect(p.daemonSettingsDiffer(from: base))
+        // The same gateway as typed and as installed (normalized) is no change.
+        p = base
+        p.tunnel?.host = "https://vpn.example.com"
+        #expect(!p.daemonSettingsDiffer(from: base))
+    }
+
+    @Test func daemonsOnAnOlderHelper() {
+        var state = TunnelState(phase: .connected, since: Date(), helperBuild: "100-5")
+        #expect(!state.runsOlderHelper(than: "100-5"))
+        #expect(state.runsOlderHelper(than: "120-9"))
+        #expect(!state.runsOlderHelper(than: nil))
+        state.helperBuild = nil
+        #expect(state.runsOlderHelper(than: "100-5"))
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("helper-\(UUID().uuidString)")
+        try! Data("abc".utf8).write(to: file)
+        try! FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000)], ofItemAtPath: file.path)
+        #expect(TunnelFiles.helperBuild(at: file.path) == "3-1700000000")
+        try? FileManager.default.removeItem(at: file)
+        #expect(TunnelFiles.helperBuild(at: file.path) == nil)
     }
 
     @Test func commandsAndScripts() {
         #expect(TunnelFiles.kickstartCommand(name: "corp") == ["sudo", "-n", "/bin/launchctl", "kickstart", "-k", "system/com.ya-makariy.vpn-widget.corp"])
+        #expect(TunnelFiles.setOwnerCommand(network: "10.20.0.0/24", tunnel: "corp") == ["sudo", "-n", "/usr/local/libexec/vpn-widget/vpn-tunnel", "set-owner", "10.20.0.0/24", "corp"])
+        #expect(TunnelFiles.setOwnerCommand(network: "10.20.0.0/24", tunnel: nil).last == "-")
+        #expect(TunnelFiles.setOwnerScript(network: "10.20.0.0/24", tunnel: "corp") == "set -e\n'/usr/local/libexec/vpn-widget/vpn-tunnel' set-owner '10.20.0.0/24' 'corp'\n")
+        #expect(TunnelFiles.setOwnerScript(network: "10.20.0.0/24", tunnel: nil, refreshHelperFrom: "/A/vpn-tunnel") == "set -e\n/usr/bin/install -m 755 -o root -g wheel '/A/vpn-tunnel' '/usr/local/libexec/vpn-widget/vpn-tunnel'\n'/usr/local/libexec/vpn-widget/vpn-tunnel' set-owner '10.20.0.0/24' '-'\n")
+        #expect(TunnelFiles.publicFakeIPTablePath == "/var/run/vpn-widget/_fakeip.json")
+        #expect(!TunnelConfig.isInstalledName("_fakeip"))
         #expect(TunnelFiles.killCommand(name: "corp") == ["sudo", "-n", "/bin/launchctl", "kill", "TERM", "system/com.ya-makariy.vpn-widget.corp"])
         let install = TunnelFiles.installScript(name: "corp", stagedConfig: "/tmp/s/corp.json", stagedSecret: "/tmp/s/corp.secret")
         #expect(install.contains("'/usr/local/libexec/vpn-widget/vpn-tunnel' install 'corp' '/tmp/s/corp.json' '/tmp/s/corp.secret'"))

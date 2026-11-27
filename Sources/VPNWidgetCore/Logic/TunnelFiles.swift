@@ -45,6 +45,21 @@ public enum TunnelFiles {
         return missing.isEmpty ? .needsSetup(absent) : .missing(missing)
     }
 
+    /// The stand-in ranges of all tunnels and the user's choices (FakeIP.Table).
+    public static let fakeIPTablePath = "/usr/local/etc/vpn-widget/fakeip.json"
+    /// A world-readable copy for the widget, next to the state files; the
+    /// underscore keeps it apart from any tunnel's name.
+    public static let publicFakeIPTablePath = "\(stateDirectory)/_fakeip.json"
+
+    /// Which build of the helper a file is: its size and modification time,
+    /// readable by anyone, changed by every install.
+    public static func helperBuild(at path: String = helperPath) -> String? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attributes[.size] as? Int, let modified = attributes[.modificationDate] as? Date
+        else { return nil }
+        return "\(size)-\(Int(modified.timeIntervalSince1970))"
+    }
+
     public static func label(_ name: String) -> String { labelPrefix + name }
     public static func plistPath(_ name: String) -> String { "\(launchDaemonsDirectory)/\(label(name)).plist" }
     public static func configPath(_ name: String) -> String { "\(configDirectory)/\(name).json" }
@@ -53,6 +68,9 @@ public enum TunnelFiles {
     public static func logPath(_ name: String) -> String { "\(logDirectory)/\(name).log" }
     /// Where amneziawg-go writes the name of the utun it was given.
     public static func interfaceNamePath(_ name: String) -> String { "\(stateDirectory)/\(name).utun" }
+    /// openconnect: the networks the gateway asked to route, `addr/len` a
+    /// line, as the vpnc-script wrapper records them.
+    public static func recordedRoutesPath(_ name: String) -> String { "\(stateDirectory)/\(name).routes" }
     /// A world-readable copy of the profile without secrets, for the widget's
     /// discovery; the config itself is root-only.
     public static func publicProfilePath(_ name: String) -> String { "\(stateDirectory)/\(name).profile.json" }
@@ -91,14 +109,34 @@ public enum TunnelFiles {
         """
     }
 
-    /// Lets one user start, stop and look at the widget's jobs, and nothing else.
+    /// Lets one user start, stop and look at the widget's jobs, and choose
+    /// which tunnel holds a shared network (the helper checks the arguments),
+    /// and nothing else.
     public static func sudoersRule(user: String) -> String {
         let jobs = "system/\(labelPrefix)*"
         return """
         # Written by VPN Widget: lets \(user) control the widget's own tunnels without a password.
-        \(user) ALL=(root) NOPASSWD: \(launchctl) kickstart -k \(jobs), \(launchctl) kill TERM \(jobs), \(launchctl) print \(jobs)
+        \(user) ALL=(root) NOPASSWD: \(launchctl) kickstart -k \(jobs), \(launchctl) kill TERM \(jobs), \(launchctl) print \(jobs), \(helperPath) set-owner *
 
         """
+    }
+
+    /// Chooses the tunnel that holds a shared network's real addresses; `-`
+    /// forgets the choice.
+    public static func setOwnerCommand(network: String, tunnel: String?) -> [String] {
+        ["sudo", "-n", helperPath, "set-owner", network, tunnel ?? "-"]
+    }
+
+    /// The same through the admin prompt, for a setup from before the sudoers
+    /// rule allowed it; the helper is replaced first when it is older too.
+    public static func setOwnerScript(network: String, tunnel: String?, refreshHelperFrom bundledHelper: String? = nil) -> String {
+        let q = ResolverFiles.shellQuote
+        var lines = ["set -e"]
+        if let bundledHelper {
+            lines.append("/usr/bin/install -m 755 -o root -g wheel \(q(bundledHelper)) \(q(helperPath))")
+        }
+        lines.append("\(q(helperPath)) set-owner \(q(network)) \(q(tunnel ?? "-"))")
+        return lines.joined(separator: "\n") + "\n"
     }
 
     public static func kickstartCommand(name: String) -> [String] { ["sudo", "-n", launchctl, "kickstart", "-k", "system/\(label(name))"] }

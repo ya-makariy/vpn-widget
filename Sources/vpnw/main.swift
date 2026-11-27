@@ -14,6 +14,7 @@ usage: vpnw <command>
   dns <id|name>            the profile's DNS and routing facts
   log <tunnel> [-n N] [-f] the end of an own tunnel's log (-n: lines, 50; -f: follow)
   check <url> [--insecure] run the reachability check against a URL
+  overlaps                 networks of own tunnels that another tunnel's route takes
 """
 
 @main
@@ -34,6 +35,7 @@ struct Main {
             case "dns": try await dns(target: args.joined(separator: " "))
             case "log": try await log(args)
             case "check": try await check(args)
+            case "overlaps": overlaps()
             default:
                 print(usage)
                 exit(2)
@@ -42,6 +44,38 @@ struct Main {
             fputs("vpnw: \(error)\n", stderr)
             exit(1)
         }
+    }
+
+    /// For each running own tunnel: the networks it wants (an AmneziaWG
+    /// tunnel's AllowedIPs, otherwise the routes on its interface) that the
+    /// main table gives to another tunnel's interface.
+    static func overlaps() {
+        let table = FakeIP.routes(inNetstat: run("/usr/sbin/netstat", ["-nr", "-f", "inet"]))
+        for name in TunnelControllerLaunchd.installedNames() {
+            guard let state = TunnelControllerLaunchd.readState(name), state.phase == .connected, let interface = state.interfaceName else { continue }
+            let profile = TunnelControllerLaunchd.installedProfile(name)
+            let wanted: [IPNetwork]
+            if let allowed = profile?.tunnel?.wireGuard?.allowedIPs {
+                wanted = allowed.compactMap(IPNetwork.init)
+            } else {
+                wanted = table.filter { $0.interface == interface && !$0.isScoped }.map(\.destination)
+            }
+            let found = FakeIP.overlaps(of: wanted, on: interface, in: table)
+            print("\(name) on \(interface): \(found.isEmpty ? "no overlaps" : "")")
+            for o in found { print("  \(o.network) is routed by \(o.interface)") }
+        }
+    }
+
+    static func run(_ path: String, _ arguments: [String]) -> String {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.arguments = arguments
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        try? p.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(decoding: data, as: UTF8.self)
     }
 
     static let composite = CompositeController(system: ConnectionControllerSC(), systemDirectory: ServiceDirectorySC(), tunnels: TunnelControllerLaunchd())

@@ -35,6 +35,11 @@ struct TunnelsSettingsView: View {
                             Label("Changes not applied", systemImage: "exclamationmark.circle")
                                 .font(.caption)
                                 .foregroundStyle(.orange)
+                        } else if let name = profile.tunnel?.name, model.tunnelsOnOlderHelper.contains(name) {
+                            Label("Reconnect to update", systemImage: "arrow.triangle.2.circlepath")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .help("The tunnel runs the helper from before the last update; it takes the new one when it reconnects.")
                         }
                         Button("Log") { TunnelLogOpener.open(profile.id, with: openWindow) }
                         Button("Edit…") { editing = profile }
@@ -57,6 +62,9 @@ struct TunnelsSettingsView: View {
                 }
             } footer: {
                 Text("A tunnel is a launchd job on this Mac that runs openfortivpn, openconnect or amneziawg-go as root. The widget starts and stops it without a password through a sudoers rule limited to these jobs. Connecting needs no other app: a SAML sign-in opens in the browser.")
+            }
+            if !model.sharedNetworks.isEmpty {
+                SharedNetworksSection()
             }
         }
         .formStyle(.grouped)
@@ -105,6 +113,50 @@ struct TunnelsSettingsView: View {
     }
 }
 
+/// Networks two or more connected tunnels route: which one has the real
+/// addresses, and the stand-in ranges the others reach theirs through.
+struct SharedNetworksSection: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Section {
+            ForEach(model.sharedNetworks) { shared in
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker(selection: Binding(
+                        get: { shared.holder ?? "" },
+                        set: { if !$0.isEmpty, $0 != shared.holder { model.chooseHolder($0, of: shared.network, members: shared.members.map(\.tunnel)) } }
+                    )) {
+                        if shared.holder == nil {
+                            Text("Another VPN").tag("")
+                        }
+                        ForEach(shared.members, id: \.tunnel) { member in
+                            Text(model.tunnelDisplayName(member.tunnel)).tag(member.tunnel)
+                        }
+                    } label: {
+                        Text(verbatim: shared.network).font(.body.monospaced())
+                    }
+                    .disabled(shared.holder == nil)
+                    ForEach(shared.members.filter { $0.tunnel != shared.holder && $0.fake != nil }, id: \.tunnel) { member in
+                        Text(verbatim: "\(model.tunnelDisplayName(member.tunnel)): through \(member.fake ?? "")")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    if shared.holder == nil {
+                        Text("A VPN app outside the widget has this network; it is not ours to move.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("Shared networks")
+        } footer: {
+            Text("These networks are routed by more than one tunnel. The tunnel chosen here gets the real addresses; each of the others reaches its own hosts through a stand-in range from the documentation networks (TCP only), and names in its split-DNS domains resolve to their stand-ins. Choosing reconnects the tunnels that share the network.")
+        }
+    }
+}
+
 extension TunnelConfig.Kind: Identifiable {
     public var id: String { rawValue }
 }
@@ -130,7 +182,10 @@ struct TunnelEditorView: View {
         _profile = State(initialValue: profile)
         self.isNew = isNew
         _domainsText = State(initialValue: profile.dnsDomains.joined(separator: " "))
-        _serversText = State(initialValue: profile.dnsServers.joined(separator: " "))
+        // A new AmneziaWG tunnel starts with a public resolver for its domains,
+        // unless its .conf brings DNS servers (see `imported`).
+        let newWireGuard = isNew && profile.tunnel?.kind == .amneziawg && profile.dnsServers.isEmpty
+        _serversText = State(initialValue: newWireGuard ? Self.defaultWireGuardDNS : profile.dnsServers.joined(separator: " "))
         _checkURLText = State(initialValue: profile.checkURL?.absoluteString ?? "")
     }
 
@@ -292,10 +347,20 @@ struct TunnelEditorView: View {
 
     /// Takes a picked `.conf`: its summary into the profile, its DNS as the
     /// split-DNS servers when none are typed, its file name as the title.
+    /// Quad9: it answers names that point at private addresses, which home
+    /// routers' resolvers often drop (DNS rebinding protection), and it is
+    /// reachable over UDP where some networks hold back 1.1.1.1 and 8.8.8.8.
+    /// The field stays editable.
+    static let defaultWireGuardDNS = "9.9.9.9"
+
     private func imported(_ text: String, _ conf: WireGuardConf, _ title: String) {
         confText = text
         tunnel.wrappedValue.apply(conf)
-        if serversText.trimmingCharacters(in: .whitespaces).isEmpty { serversText = conf.dnsServers.joined(separator: " ") }
+        // The .conf's own DNS wins over the default; anything typed stays.
+        let typed = serversText.trimmingCharacters(in: .whitespaces)
+        if typed.isEmpty || (typed == Self.defaultWireGuardDNS && !conf.dnsServers.isEmpty) {
+            serversText = conf.dnsServers.isEmpty ? Self.defaultWireGuardDNS : conf.dnsServers.joined(separator: " ")
+        }
         if domainsText.trimmingCharacters(in: .whitespaces).isEmpty { domainsText = conf.dnsSearchDomains.joined(separator: " ") }
         if isNew, profile.displayName.isEmpty { profile.displayName = title }
     }

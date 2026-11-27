@@ -21,7 +21,7 @@ public struct IPNetwork: Hashable, Sendable, CustomStringConvertible {
         self.init(bytes: bytes, prefix: prefix)
     }
 
-    init(bytes: [UInt8], prefix: Int) {
+    public init(bytes: [UInt8], prefix: Int) {
         self.bytes = bytes
         self.prefix = prefix
     }

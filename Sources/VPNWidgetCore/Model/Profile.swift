@@ -69,6 +69,21 @@ public struct VPNProfile: Codable, Hashable, Identifiable, Sendable {
 
     public var isOwnTunnel: Bool { tunnel != nil }
 
+    /// Whether what an own tunnel's daemon reads when it starts differs: the
+    /// tunnel's config and the split DNS. The name, the check and the start
+    /// at launch are the widget's own and take no reconnect; neither does the
+    /// stored-secret flag or the `.conf` summary (a new secret is a change of
+    /// its own, which the caller knows about).
+    public func daemonSettingsDiffer(from other: VPNProfile) -> Bool {
+        func daemonView(_ t: TunnelConfig?) -> TunnelConfig? {
+            guard var t = t?.normalized else { return nil }
+            t.hasSecret = false
+            t.wireGuard = nil
+            return t
+        }
+        return daemonView(tunnel) != daemonView(other.tunnel) || dnsDomains != other.dnsDomains || dnsServers != other.dnsServers
+    }
+
     /// A profile with defaults for a service the user just added.
     public init(adopting service: DiscoveredService) {
         self.init(id: service.id, displayName: service.name, providerKind: service.kind)
