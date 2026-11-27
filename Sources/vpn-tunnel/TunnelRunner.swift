@@ -25,6 +25,8 @@ final class TunnelRunner: @unchecked Sendable {
     /// Events come from the tool's output and, for amneziawg, from the link's watcher.
     private let eventLock = NSLock()
     private let logFile: LogFile
+    /// amneziawg: the session's config, for the networks it routes.
+    private var wireGuard: WireGuardConf?
 
     init(name: String) throws {
         guard TunnelConfig.isInstalledName(name) else { throw ActionError("invalid tunnel name") }
@@ -157,6 +159,7 @@ final class TunnelRunner: @unchecked Sendable {
         let input = Pipe()
         process.standardInput = input
         lock.withLock { child = process }
+        wireGuard = launch.wireGuard
         let defaultRoute = launch.wireGuard.map { $0.takesDefaultRoute && !$0.routesOff }
         write { $0.phase = .connecting; $0.since = Date(); $0.message = nil; $0.signInURL = nil; $0.defaultRoute = defaultRoute }
         do {
@@ -318,6 +321,11 @@ final class TunnelRunner: @unchecked Sendable {
     /// wrapper hides the DNS from vpnc-script on purpose.
     private func routeDNSServers(_ servers: [String], via interface: String) {
         for server in servers where !server.contains(":") {
+            // amneziawg: the peer drops what is outside its AllowedIPs; such a server is reached the usual way.
+            if let conf = wireGuard, let address = IPNetwork(server), !conf.routes.contains(where: { $0.contains(address) }) {
+                log("DNS \(server) is outside the tunnel's AllowedIPs: reached the usual way")
+                continue
+            }
             let (status, output) = Self.run("/sbin/route", ["-n", "get", server])
             let via = output.split(separator: "\n").first { $0.contains("interface:") }?.split(separator: ":").last?.trimmingCharacters(in: .whitespaces)
             if status == 0, via == interface { continue }
