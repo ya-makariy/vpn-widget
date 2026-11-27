@@ -9,6 +9,8 @@ enum Drivers {
         var environment: [String: String] = [:]
         var stdin: Data?
         var parse: (String) -> ToolEvent?
+        /// amneziawg: the config the runner applies once the tool has its interface.
+        var wireGuard: WireGuardConf?
     }
 
     static func launch(for profile: VPNProfile) throws -> Launch {
@@ -16,6 +18,7 @@ enum Drivers {
         switch tunnel.kind {
         case .openfortivpn: return try openfortivpn(profile, tunnel)
         case .openconnect: return try openconnect(profile, tunnel)
+        case .amneziawg: return try amneziawg(profile, tunnel)
         }
     }
 
@@ -51,6 +54,12 @@ enum Drivers {
     /// which records the DNS the gateway pushed and, when the profile names
     /// domains, keeps vpnc-script from making that DNS the system's.
     static func openconnect(_ profile: VPNProfile, _ tunnel: TunnelConfig) throws -> Launch {
+        // The wrapper is setup's, but a newer daemon may want more of it: kept current here.
+        let wrapper = "\(TunnelFiles.libexecDirectory)/vpnc-wrapper"
+        if (try? String(contentsOfFile: wrapper, encoding: .utf8)) != vpncWrapperScript {
+            try Admin.writeRoot(vpncWrapperScript, to: wrapper, mode: 0o755)
+        }
+        try? FileManager.default.removeItem(atPath: TunnelFiles.recordedRoutesPath(tunnel.name))
         var arguments = [
             "--non-inter", "--script", "\(TunnelFiles.libexecDirectory)/vpnc-wrapper",
             "--protocol", tunnel.protocolName ?? "anyconnect",
@@ -79,13 +88,54 @@ enum Drivers {
         )
     }
 
-    /// Installed next to the tools. Records the DNS the gateway pushed for the
-    /// daemon, then runs vpnc-script, without DNS when the domains are ours.
+    /// amneziawg-go runs in the foreground on a utun the system numbers, and
+    /// writes its name where `WG_TUN_NAME_FILE` says; the rest of what
+    /// wg-quick would do is WireGuardLink's. The `.conf`, with its keys, is the
+    /// tunnel's secret, read here and never passed on a command line. Plain
+    /// WireGuard configs take the same path: without obfuscation parameters
+    /// amneziawg-go is expected to speak the plain protocol.
+    static func amneziawg(_ profile: VPNProfile, _ tunnel: TunnelConfig) throws -> Launch {
+        for tool in TunnelFiles.wireGuardTools where !FileManager.default.isExecutableFile(atPath: "\(TunnelFiles.libexecDirectory)/\(tool)") {
+            throw ActionError("\(tool) is not in \(TunnelFiles.libexecDirectory): install it, then Set Up Again in Settings → Tunnels")
+        }
+        let conf = try Admin.wireGuardConf(name: tunnel.name, stagedSecret: nil)
+        let nameFile = TunnelFiles.interfaceNamePath(tunnel.name)
+        try? FileManager.default.removeItem(atPath: nameFile)
+        var environment = ["WG_TUN_NAME_FILE": nameFile]
+        // It logs errors only unless told otherwise.
+        if tunnel.logLevel >= .debug { environment["LOG_LEVEL"] = "verbose" }
+        return Launch(
+            executable: "\(TunnelFiles.libexecDirectory)/amneziawg-go",
+            arguments: ["-f", "utun"],
+            environment: environment,
+            parse: AmneziaWGOutput.parse,
+            wireGuard: conf
+        )
+    }
+
+    /// Installed next to the tools. Records the DNS the gateway pushed and
+    /// the networks it asked to route, the address pool's among them
+    /// (vpnc-script may fail to add a route
+    /// another tunnel has; the daemon still has to know the network is ours),
+    /// then runs vpnc-script, without DNS when the domains are ours. The
+    /// values are only printed, never run: the daemon parses them strictly.
     static let vpncWrapperScript = """
     #!/bin/sh
     # VPN Widget: around vpnc-script. See vpn-tunnel.
     if [ "$reason" = "connect" ] && [ -n "$VPN_WIDGET_NAME" ]; then
-        printf '%s\\n%s\\n' "$INTERNAL_IP4_DNS" "$CISCO_DEF_DOMAIN" > "${VPN_WIDGET_STATE_DIR:-/var/run/vpn-widget}/$VPN_WIDGET_NAME.dns"
+        dir="${VPN_WIDGET_STATE_DIR:-/var/run/vpn-widget}"
+        printf '%s\\n%s\\n' "$INTERNAL_IP4_DNS" "$CISCO_DEF_DOMAIN" > "$dir/$VPN_WIDGET_NAME.dns"
+        : > "$dir/$VPN_WIDGET_NAME.routes"
+        # The network of the address pool, which vpnc-script routes too.
+        if [ -n "$INTERNAL_IP4_NETADDR" ] && [ -n "$INTERNAL_IP4_NETMASKLEN" ]; then
+            printf '%s/%s\\n' "$INTERNAL_IP4_NETADDR" "$INTERNAL_IP4_NETMASKLEN" >> "$dir/$VPN_WIDGET_NAME.routes"
+        fi
+        i=0
+        while [ "$i" -lt "${CISCO_SPLIT_INC:-0}" ] 2>/dev/null; do
+            eval "addr=\\${CISCO_SPLIT_INC_${i}_ADDR} len=\\${CISCO_SPLIT_INC_${i}_MASKLEN}"
+            printf '%s/%s\\n' "$addr" "$len" >> "$dir/$VPN_WIDGET_NAME.routes"
+            i=$((i + 1))
+        done
     fi
     if [ "$VPN_WIDGET_SPLIT_DNS" = "1" ]; then
         INTERNAL_IP4_DNS= INTERNAL_IP6_DNS= CISCO_DEF_DOMAIN= CISCO_SPLIT_DNS=

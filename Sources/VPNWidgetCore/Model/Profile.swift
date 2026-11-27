@@ -69,6 +69,21 @@ public struct VPNProfile: Codable, Hashable, Identifiable, Sendable {
 
     public var isOwnTunnel: Bool { tunnel != nil }
 
+    /// Whether what an own tunnel's daemon reads when it starts differs: the
+    /// tunnel's config and the split DNS. The name, the check and the start
+    /// at launch are the widget's own and take no reconnect; neither does the
+    /// stored-secret flag or the `.conf` summary (a new secret is a change of
+    /// its own, which the caller knows about).
+    public func daemonSettingsDiffer(from other: VPNProfile) -> Bool {
+        func daemonView(_ t: TunnelConfig?) -> TunnelConfig? {
+            guard var t = t?.normalized else { return nil }
+            t.hasSecret = false
+            t.wireGuard = nil
+            return t
+        }
+        return daemonView(tunnel) != daemonView(other.tunnel) || dnsDomains != other.dnsDomains || dnsServers != other.dnsServers
+    }
+
     /// A profile with defaults for a service the user just added.
     public init(adopting service: DiscoveredService) {
         self.init(id: service.id, displayName: service.name, providerKind: service.kind)
@@ -98,11 +113,14 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
     public enum Kind: String, Codable, CaseIterable, Sendable {
         case openfortivpn
         case openconnect
+        /// AmneziaWG, and plain WireGuard, through amneziawg-go and awg.
+        case amneziawg
 
         public var providerKind: ProviderKind {
             switch self {
             case .openfortivpn: .openfortivpn
             case .openconnect: .openconnect
+            case .amneziawg: .amneziawgGo
             }
         }
 
@@ -113,6 +131,7 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
             switch self {
             case .openfortivpn: "FortiGate SSL VPN (openfortivpn)"
             case .openconnect: "AnyConnect (openconnect)"
+            case .amneziawg: "AmneziaWG / WireGuard (amneziawg-go)"
             }
         }
     }
@@ -147,7 +166,8 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
     /// openfortivpn: sign in through SAML in the browser.
     public var saml: Bool
     public var username: String?
-    /// A password is stored for this tunnel, in a root-only file.
+    /// A password is stored for this tunnel, in a root-only file. amneziawg:
+    /// the imported `.conf`, with its keys.
     public var hasSecret: Bool
     /// openfortivpn: `--trusted-cert` digest. openconnect: `--servercert` pin.
     public var trustedCert: String?
@@ -157,8 +177,11 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
     public var logLevel: LogLevel
     /// How many days of rotated, compressed logs are kept.
     public var logRetentionDays: Int
+    /// amneziawg: what the imported `.conf` says, without its keys. `host`
+    /// and `port` are the first peer's endpoint.
+    public var wireGuard: WireGuardSummary?
 
-    public init(name: String, kind: Kind, host: String, port: Int, realm: String? = nil, saml: Bool = false, username: String? = nil, hasSecret: Bool = false, trustedCert: String? = nil, protocolName: String? = nil, extraArguments: [String] = [], logLevel: LogLevel = .info, logRetentionDays: Int = TunnelConfig.defaultLogRetentionDays) {
+    public init(name: String, kind: Kind, host: String, port: Int, realm: String? = nil, saml: Bool = false, username: String? = nil, hasSecret: Bool = false, trustedCert: String? = nil, protocolName: String? = nil, extraArguments: [String] = [], logLevel: LogLevel = .info, logRetentionDays: Int = TunnelConfig.defaultLogRetentionDays, wireGuard: WireGuardSummary? = nil) {
         self.name = name
         self.kind = kind
         self.host = host
@@ -172,10 +195,11 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
         self.extraArguments = extraArguments
         self.logLevel = logLevel
         self.logRetentionDays = logRetentionDays
+        self.wireGuard = wireGuard
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, kind, host, port, realm, saml, username, hasSecret, trustedCert, protocolName, extraArguments, logLevel, logRetentionDays
+        case name, kind, host, port, realm, saml, username, hasSecret, trustedCert, protocolName, extraArguments, logLevel, logRetentionDays, wireGuard
     }
 
     public init(from decoder: any Decoder) throws {
@@ -195,6 +219,7 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
         logLevel = (try? c.decodeIfPresent(LogLevel.self, forKey: .logLevel)) ?? .info
         let days = try c.decodeIfPresent(Int.self, forKey: .logRetentionDays) ?? Self.defaultLogRetentionDays
         logRetentionDays = min(max(days, Self.logRetentionRange.lowerBound), Self.logRetentionRange.upperBound)
+        wireGuard = try c.decodeIfPresent(WireGuardSummary.self, forKey: .wireGuard)
     }
 
     /// What a gateway typed as a URL or as FortiClient writes it
@@ -218,6 +243,8 @@ public struct TunnelConfig: Codable, Hashable, Sendable {
 
     /// The config with its host cleaned up, in case a URL was typed or written by hand.
     public var normalized: TunnelConfig {
+        // amneziawg: the host is the endpoint as the root side read it from the .conf.
+        guard kind != .amneziawg else { return self }
         guard let parts = TunnelConfig.parseGateway(host) else { return self }
         var copy = self
         copy.host = parts.host

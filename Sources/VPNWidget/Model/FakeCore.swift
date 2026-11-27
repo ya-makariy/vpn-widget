@@ -34,6 +34,7 @@ actor FakeSystem: ServiceDirectory, ConnectionController, InterfaceMap, Reachabi
         case .wireguard: "com.wireguard.macos.network-extension"
         case .openfortivpn: TunnelConfig.Kind.openfortivpn.providerBundleID
         case .openconnect: TunnelConfig.Kind.openconnect.providerBundleID
+        case .amneziawgGo: TunnelConfig.Kind.amneziawg.providerBundleID
         case .other: nil
         }
     }

@@ -18,6 +18,8 @@ final class AppModel {
     private(set) var lastPoll: Date?
     private(set) var resolverStatuses: [String: ResolverFiles.Status] = [:]
     private(set) var tunnelSetupStatus: TunnelInstaller.SetupStatus = .notSetUp
+    /// Networks two or more own tunnels want, and which one has them.
+    private(set) var sharedNetworks: [FakeIP.SharedNetwork] = []
     /// An error from a settings action, for the settings window to show.
     var settingsError: String?
     let settings: SettingsStore
@@ -123,6 +125,8 @@ final class AppModel {
         updateTicker()
         openPendingSignIns()
         refreshTunnelSetupStatus()
+        refreshSharedNetworks()
+        refreshTunnelsOnOlderHelper()
     }
 
     /// Opens the SAML page of an own tunnel in the browser, once per attempt.
@@ -328,6 +332,68 @@ final class AppModel {
 
     var missingTunnelTools: [String] { isFake ? [] : TunnelInstaller.missingTools() }
 
+    func refreshSharedNetworks() {
+        let fresh = isFake ? [] : TunnelControllerLaunchd.sharedNetworks()
+        if fresh != sharedNetworks { sharedNetworks = fresh }
+    }
+
+    /// The name the panel shows for an own tunnel.
+    func tunnelDisplayName(_ name: String) -> String {
+        profile(TunnelConfig.profileID(name: name))?.displayName ?? name
+    }
+
+    /// Gives a shared network's real addresses to one tunnel; the others
+    /// reach it through their stand-ins. The choice is written without a
+    /// password where the sudoers rule allows it, through the admin prompt
+    /// where it is older; then every tunnel sharing the network reconnects, so
+    /// that each daemon, the newest helper included, starts from the choice.
+    func chooseHolder(_ tunnel: String, of network: String, members: [String]) {
+        Task {
+            do {
+                if try await !TunnelControllerLaunchd.setOwner(network: network, tunnel: tunnel) {
+                    try TunnelInstaller.setOwnerWithPrompt(network: network, tunnel: tunnel)
+                    refreshTunnelSetupStatus()
+                    reconnectTunnelsOnOlderHelper(except: members)
+                }
+                settingsError = nil
+            } catch {
+                let text = "\(error)"
+                if text != "cancelled" { settingsError = "Shared network \(network): \(text)" }
+                return
+            }
+            for member in members {
+                let id = TunnelConfig.profileID(name: member)
+                if rows.first(where: { $0.id == id })?.phase.canDisconnect == true { reconnect(id) }
+            }
+            for _ in 0..<15 {
+                try? await Task.sleep(for: .seconds(1))
+                refreshSharedNetworks()
+            }
+        }
+    }
+
+    /// Tunnels whose daemon runs an older helper, for the settings to mark.
+    private(set) var tunnelsOnOlderHelper: Set<String> = []
+
+    /// After the helper was replaced, the tunnels still on the old one
+    /// reconnect, so that what changed reaches them. A SAML tunnel is left
+    /// alone (reconnecting means signing in again) and only marked.
+    func reconnectTunnelsOnOlderHelper(except skipped: [String] = []) {
+        guard !isFake else { return }
+        for name in TunnelControllerLaunchd.tunnelsOnOlderHelper() where !skipped.contains(name) {
+            let id = TunnelConfig.profileID(name: name)
+            let tunnel = profile(id)?.tunnel ?? TunnelControllerLaunchd.installedProfile(name)?.tunnel
+            if tunnel?.saml != false { continue }
+            reconnect(id)
+        }
+        refreshTunnelsOnOlderHelper()
+    }
+
+    func refreshTunnelsOnOlderHelper() {
+        let fresh = isFake ? [] : Set(TunnelControllerLaunchd.tunnelsOnOlderHelper())
+        if fresh != tunnelsOnOlderHelper { tunnelsOnOlderHelper = fresh }
+    }
+
     /// Profiles that are own tunnels, shown or not.
     var ownTunnels: [VPNProfile] { config.profiles.filter(\.isOwnTunnel) }
 
@@ -335,6 +401,7 @@ final class AppModel {
         do {
             try TunnelInstaller.setUp()
             settingsError = nil
+            reconnectTunnelsOnOlderHelper()
         } catch {
             let text = "\(error)"
             if text != "cancelled" { settingsError = "Set up tunnels: \(text)" }
@@ -346,7 +413,10 @@ final class AppModel {
     /// Installs a new or changed tunnel through the admin prompt, then shows
     /// it in the panel.
     func saveTunnel(_ profile: VPNProfile, password: String?) -> Bool {
-        guard profile.isOwnTunnel else { return false }
+        guard profile.isOwnTunnel, let name = profile.tunnel?.name else { return false }
+        // What the daemon runs with now, to tell whether the change reaches it.
+        let before = TunnelControllerLaunchd.installedProfile(name)
+        let stale = TunnelControllerLaunchd.tunnelsOnOlderHelper().contains(name)
         do {
             try TunnelInstaller.install(profile, password: password)
         } catch {
@@ -362,6 +432,15 @@ final class AppModel {
         }
         saveProfiles(profiles)
         settingsError = nil
+        reconnectTunnelsOnOlderHelper(except: [name])
+        // The daemon reads its config when it starts: a change it would use
+        // (or a new password or .conf) reconnects the tunnel, if it is up. So
+        // does an older helper, unless only that and the tunnel signs in by SAML.
+        let changed = !(password ?? "").isEmpty || (before.map { profile.daemonSettingsDiffer(from: $0) } ?? false)
+        let id = profile.id
+        if rows.first(where: { $0.id == id })?.phase.canDisconnect == true, changed || (stale && profile.tunnel?.saml != true) {
+            reconnect(id)
+        }
         return true
     }
 

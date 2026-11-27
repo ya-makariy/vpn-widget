@@ -22,7 +22,13 @@ final class TunnelRunner: @unchecked Sendable {
     private var fatal: String?
     private var untrustedCertificate: String?
     private var lastError: String?
+    /// Events come from the tool's output and, for amneziawg, from the link's watcher.
+    private let eventLock = NSLock()
     private let logFile: LogFile
+    /// amneziawg: the session's config, for the networks it routes.
+    private var wireGuard: WireGuardConf?
+    /// Stand-in ranges for networks another tunnel took, while the link is up.
+    private var fakeIP: FakeIPService?
 
     init(name: String) throws {
         guard TunnelConfig.isInstalledName(name) else { throw ActionError("invalid tunnel name") }
@@ -42,7 +48,7 @@ final class TunnelRunner: @unchecked Sendable {
         logFile.start()
         log("starting tunnel \(name) (\(tunnel.kind.rawValue)) to \(tunnel.host):\(tunnel.port)")
         installSignalHandlers()
-        write { $0 = TunnelState(phase: .starting, since: Date(), pid: getpid()) }
+        write { $0 = TunnelState(phase: .starting, since: Date(), supportsStandIns: true, helperBuild: TunnelFiles.helperBuild(), pid: getpid()) }
         while !isStopping {
             guard waitForGateway() else { break }
             let started = Date()
@@ -52,6 +58,7 @@ final class TunnelRunner: @unchecked Sendable {
             untrustedCertificate = nil
             lastError = nil
             let status = runOnce()
+            stopFakeIP()
             removeResolverFiles()
             if isStopping { break }
             let lasted = sessionStarted.map { Date().timeIntervalSince($0) } ?? 0
@@ -120,6 +127,8 @@ final class TunnelRunner: @unchecked Sendable {
     /// Waits until the gateway's port answers, so that a sign-in page never
     /// opens just to show an error.
     private func waitForGateway() -> Bool {
+        // amneziawg: the peer is a UDP port, which says nothing until the handshake.
+        if tunnel.kind == .amneziawg { return !isStopping }
         var announced = false
         while !isStopping {
             if TCPProbe.canConnect(host: tunnel.host, port: tunnel.port, timeout: 3) { return true }
@@ -153,7 +162,9 @@ final class TunnelRunner: @unchecked Sendable {
         let input = Pipe()
         process.standardInput = input
         lock.withLock { child = process }
-        write { $0.phase = .connecting; $0.since = Date(); $0.message = nil; $0.signInURL = nil }
+        wireGuard = launch.wireGuard
+        let defaultRoute = launch.wireGuard.map { $0.takesDefaultRoute && !$0.routesOff }
+        write { $0.phase = .connecting; $0.since = Date(); $0.message = nil; $0.signInURL = nil; $0.defaultRoute = defaultRoute }
         do {
             try process.run()
         } catch {
@@ -165,12 +176,21 @@ final class TunnelRunner: @unchecked Sendable {
         try? input.fileHandleForWriting.close()
         log("started \(launch.executable) (pid \(process.processIdentifier))")
 
+        let link = launch.wireGuard.map { conf in
+            WireGuardLink(name: name, conf: conf, child: process, log: { [weak self] in self?.log($0, $1) }, emit: { [weak self] event in
+                guard let self else { return }
+                self.eventLock.withLock { self.handle(event) }
+            })
+        }
+        link?.start()
         let reader = LineReader(handle: output.fileHandleForReading)
-        while let line = reader.next() {
+        while let raw = reader.next() {
+            let line = launch.wireGuard?.scrub(raw) ?? raw
             log("  " + line, .ofToolLine(line))
-            if let event = launch.parse(line) { handle(event) }
+            if let event = launch.parse(line) { eventLock.withLock { handle(event) } }
         }
         process.waitUntilExit()
+        link?.finish()
         lock.withLock { child = nil }
         return process.terminationStatus
     }
@@ -199,6 +219,7 @@ final class TunnelRunner: @unchecked Sendable {
             // as it sees "connected", and a lookup that goes out before the
             // resolver files exist comes back NXDOMAIN and gets cached.
             write { $0.interfaceName = name; $0.address = address }
+            if let name { startFakeIP(interface: name) }
             writeResolverFiles()
             write {
                 $0.phase = .connected
@@ -221,6 +242,14 @@ final class TunnelRunner: @unchecked Sendable {
             lastError = fatal
         case .error(let why):
             lastError = why
+        case .waiting(let what):
+            // The process and its interface stay; a handshake brings the link back.
+            write {
+                if $0.phase == .connected { $0.since = Date() }
+                $0.phase = .connecting
+                $0.connectedSince = nil
+                $0.message = what
+            }
         }
     }
 
@@ -238,20 +267,78 @@ final class TunnelRunner: @unchecked Sendable {
         return nil
     }
 
+    // MARK: Stand-in ranges
+
+    /// Once per session, when the link first comes up. An AmneziaWG tunnel's
+    /// networks are its AllowedIPs; the other tools' are learnt from the
+    /// routes they put on the interface.
+    private func startFakeIP(interface: String) {
+        guard fakeIP == nil else { return }
+        var wanted: [IPNetwork]?
+        if let conf = wireGuard {
+            guard !conf.routesOff else { return }
+            wanted = conf.routes.filter { !conf.takesDefaultRoute || $0.prefix > 1 }
+        }
+        let service = FakeIPService(
+            name: name, interface: interface, wanted: wanted,
+            recordedRoutes: tunnel.kind == .openconnect ? TunnelFiles.recordedRoutesPath(name) : nil,
+            ownAddress: currentState.address, upstreamDNS: splitDNSServers(),
+            log: { [weak self] in self?.log($0, $1) },
+            changed: { [weak self] in
+                // Called from the service's own thread, or from start() under eventLock.
+                DispatchQueue.global().async { [weak self] in
+                    guard let self else { return }
+                    self.eventLock.withLock { self.fakeIPChanged() }
+                }
+            })
+        fakeIP = service
+        service.start()
+    }
+
+    private func fakeIPChanged() {
+        guard let fakeIP else { return }
+        let networks = fakeIP.networks
+        write { $0.fakeNetworks = networks.isEmpty ? nil : networks }
+        if currentState.phase == .connected, fakeIP.dnsPort != nil { writeResolverFiles() }
+    }
+
+    private func stopFakeIP() {
+        let service: FakeIPService? = eventLock.withLock {
+            defer { fakeIP = nil }
+            return fakeIP
+        }
+        service?.stop()
+        if service != nil { write { $0.fakeNetworks = nil } }
+    }
+
     // MARK: Split DNS
+
+    /// The servers for the tunnel's split-DNS domains: the profile's, else
+    /// the tunnel's own (the `.conf`'s `DNS =`, what the gateway pushed).
+    private func splitDNSServers() -> [String] {
+        guard !profile.dnsDomains.isEmpty else { return [] }
+        var servers = profile.dnsServers.filter(ResolverFiles.isServer)
+        if servers.isEmpty { servers = currentState.dnsServers }
+        if servers.isEmpty, let conf = wireGuard { servers = conf.dnsServers }
+        if servers.isEmpty, tunnel.kind == .openconnect, let pushed = readPushedDNS() { servers = pushed }
+        return servers
+    }
 
     private func writeResolverFiles() {
         guard !profile.dnsDomains.isEmpty else { return }
-        var servers = profile.dnsServers.filter(ResolverFiles.isServer)
-        if servers.isEmpty { servers = currentState.dnsServers }
-        if servers.isEmpty, tunnel.kind == .openconnect, let pushed = readPushedDNS() { servers = pushed }
+        let servers = splitDNSServers()
         guard !servers.isEmpty else {
             log("no DNS servers for the split domains; nothing written")
             return
         }
         var copy = profile
         copy.dnsServers = servers
-        let files = ResolverFiles.render(profiles: [copy])
+        var files = ResolverFiles.render(profiles: [copy])
+        // With stand-ins, the tunnel's names go through the forwarder that rewrites them.
+        if let port = fakeIP?.dnsPort {
+            copy.dnsServers = ["127.0.0.1"]
+            files = ResolverFiles.render(profiles: [copy]).mapValues { $0 + "port \(port)\n" }
+        }
         do {
             try FileManager.default.createDirectory(atPath: ResolverFiles.directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755])
             for (domain, content) in files {
@@ -261,7 +348,7 @@ final class TunnelRunner: @unchecked Sendable {
                     continue
                 }
                 try Admin.writeRoot(content, to: path, mode: 0o644)
-                resolverDomains.append(domain)
+                if !resolverDomains.contains(domain) { resolverDomains.append(domain) }
             }
             write { $0.dnsServers = servers }
             log("split DNS: \(files.keys.sorted().joined(separator: ", ")) → \(servers.joined(separator: ", "))")
@@ -296,6 +383,11 @@ final class TunnelRunner: @unchecked Sendable {
     /// wrapper hides the DNS from vpnc-script on purpose.
     private func routeDNSServers(_ servers: [String], via interface: String) {
         for server in servers where !server.contains(":") {
+            // amneziawg: the peer drops what is outside its AllowedIPs; such a server is reached the usual way.
+            if let conf = wireGuard, let address = IPNetwork(server), !conf.routes.contains(where: { $0.contains(address) }) {
+                log("DNS \(server) is outside the tunnel's AllowedIPs: reached the usual way")
+                continue
+            }
             let (status, output) = Self.run("/sbin/route", ["-n", "get", server])
             let via = output.split(separator: "\n").first { $0.contains("interface:") }?.split(separator: ":").last?.trimmingCharacters(in: .whitespaces)
             if status == 0, via == interface { continue }
